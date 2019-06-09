@@ -1,11 +1,21 @@
 module Main where
 
+import Data.Text (Text)
+import qualified Data.Text.IO as Text
+import System.Environment (getArgs)
+
 import Eval
 import Syntax
+import Parser
 
-ast :: [Expr]
--- ast = [ Val $ Float 3 ]
-ast = [ Call (Var "+") [Var "three", Call (Var "+") [Val $ Float 3, Val $ Float 5]]]
+evalStr :: String -> Either Text Val
+evalStr pgm = strToExprs pgm >>= eval defaultSymbols
 
 main :: IO ()
-main = print (eval defaultSymbols ast)
+main = do
+  pgm <- head <$> getArgs
+  case evalStr pgm of
+    Left e -> do
+      putStrLn "failed"
+      Text.putStrLn e
+    Right v -> print v
