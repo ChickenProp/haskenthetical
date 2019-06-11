@@ -2,7 +2,6 @@ module Parser where
 
 import Data.Bifunctor (first)
 import qualified Data.Text as Text
-import Data.Text (Text)
 import Data.Void (Void)
 
 import Text.Megaparsec
@@ -10,6 +9,7 @@ import Text.Megaparsec.Char
 import qualified Text.Megaparsec.Char.Lexer as L
 
 import Syntax
+import Util
 
 type Parser = Parsec Void String
 

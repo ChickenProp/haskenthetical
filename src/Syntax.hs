@@ -1,8 +1,16 @@
-module Syntax (Name(..), Expr(..), Val(..), Builtin(..)) where
+module Syntax
+  ( Name(..)
+  , Env(..)
+  , Expr(..)
+  , Val(..)
+  , Builtin(..)
+  ) where
 
+import Data.Map.Strict (Map)
 import qualified Data.Text as Text
-import Data.Text (Text)
 import GHC.Exts (IsString)
+
+import Util
 
 newtype Name = Name { unName :: Text }
   deriving (Eq, Ord, Show, IsString)
@@ -14,11 +22,15 @@ instance Show Builtin where
 instance Eq Builtin where
   Builtin' n1 _ == Builtin' n2 _ = n1 == n2
 
+newtype Env = Env { unEnv :: Map Name Val }
+  deriving (Eq, Show)
+
 data Val
   = Float Double
   | String Text
   | Builtin Builtin
   | Lam Name Expr
+  | Clos Env Name Expr
   deriving (Eq, Show)
 
 data Expr

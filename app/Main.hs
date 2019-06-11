@@ -1,12 +1,12 @@
 module Main where
 
-import Data.Text (Text)
 import qualified Data.Text.IO as Text
 import System.Environment (getArgs)
 
 import Eval
 import Syntax
 import Parser
+import Util
 
 evalStr :: String -> Either Text Val
 evalStr pgm = strToExprs pgm >>= eval defaultSymbols

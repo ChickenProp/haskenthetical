@@ -3,9 +3,9 @@ module Eval (eval, defaultSymbols) where
 import Control.Monad (forM)
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
-import Data.Text (Text)
 
 import Syntax
+import Util
 
 type SymbolTable = Map Name Val
 
@@ -17,32 +17,35 @@ hplus1 :: Double -> Val -> Either Text Val
 hplus1 a (Float b) = Right $ Float (a + b)
 hplus1 _ _ = Left "+ takes exactly two arguments"
 
-defaultSymbols :: SymbolTable
-defaultSymbols = Map.fromList
+defaultSymbols :: Env
+defaultSymbols = Env $ Map.fromList
   [ ("+", Builtin $ Builtin' "+" hplus)
   , ("three", Float 3)
   ]
 
-eval :: SymbolTable -> [Expr] -> Either Text Val
+eval :: Env -> [Expr] -> Either Text Val
 eval _ [] = Left "need at least one expr"
 eval syms [e] = eval1 syms e
 eval _ _ = Left "unsupported"
 
-eval1 :: SymbolTable -> Expr -> Either Text Val
-eval1 syms (Val x) = Right x
-eval1 syms (Var x) = case Map.lookup x syms of
-  Nothing -> Left "no such var"
+eval1 :: Env -> Expr -> Either Text Val
+eval1 env (Val x) = Right $ case x of
+  Lam name expr -> Clos env name expr
+  _ -> x
+eval1 (Env syms) (Var x) = case Map.lookup x syms of
+  Nothing -> Left $ "no such var: " <> tshow x
   Just v -> Right v
-eval1 syms (Call f args) = do
-  vf <- eval1 syms f
-  vargs <- mapM (eval1 syms) args
-  call syms vf vargs
+eval1 env (Call f args) = do
+  vf <- eval1 env f
+  vargs <- mapM (eval1 env) args
+  call env vf vargs
 eval1 _ _ = Left "unsupported expr"
 
-call :: SymbolTable -> Val -> [Val] -> Either Text Val
+call :: Env -> Val -> [Val] -> Either Text Val
 call _ v [] = Right v
-call syms (Builtin (Builtin' _ b)) (a:as) = b a >>= \next -> call syms next as
-call syms (Lam param body) (a:as) = do
+call env (Builtin (Builtin' _ b)) (a:as) = b a >>= \next -> call env next as
+call _ (Clos (Env syms) param body) (a:as) = do
   let syms2 = Map.insert param a syms
-  res1 <- eval1 syms2 body
-  call syms2 res1 as
+  res1 <- eval1 (Env syms2) body
+  call (Env syms2) res1 as
+call _ val _ = error $ "attempted to call non-closure " ++ show val
