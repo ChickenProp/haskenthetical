@@ -38,7 +38,7 @@ stParser =
 
 stFloat :: Parser Double
 stFloat = lexeme $ try (L.signed (pure ()) L.float)
-               <|> try (fromIntegral <$> L.signed (pure ()) L.decimal)
+               <|> try (fromIntegral @Int <$> L.signed (pure ()) L.decimal)
 
 stString :: Parser Text
 stString = Text.pack <$> between (symbol "\"") (symbol "\"") (many alphaNumChar)

@@ -23,12 +23,19 @@ default-extensions:
 - GeneralizedNewtypeDeriving
 - LambdaCase
 - OverloadedStrings
+- TypeApplications
 
 dependencies:
 - base >= 4.7 && < 5
 - containers
 - megaparsec
 - text
+
+ghc-options:
+- -Wall
+- -Wincomplete-record-updates
+- -Widentities
+- -Wredundant-constraints
 
 library:
   source-dirs: src

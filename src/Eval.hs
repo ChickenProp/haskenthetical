@@ -1,13 +1,9 @@
 module Eval (eval, defaultSymbols) where
 
-import Control.Monad (forM)
 import qualified Data.Map.Strict as Map
-import Data.Map.Strict (Map)
 
 import Syntax
 import Util
-
-type SymbolTable = Map Name Val
 
 hplus :: Val -> Either Text Val
 hplus (Float a) = Right $ Builtin $ Builtin' "+.1" $ hplus1 a
