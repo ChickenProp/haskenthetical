@@ -36,6 +36,7 @@ data Val
 data Expr
   = Val Val
   | Var Name
+  | Let [(Name, Expr)] Expr
   | Call Expr [Expr]
   | Def Name [Name] Expr
   deriving (Eq, Show)

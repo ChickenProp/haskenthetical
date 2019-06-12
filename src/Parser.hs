@@ -69,6 +69,16 @@ treeToExpr = \case
     return $ Val $ Lam p b
   STTree (STBare "lambda":_) ->
     Left "bad lambda expr"
+  STTree [STBare "let", STTree bindings, body] -> do
+    bs <- parseBindings bindings
+    b <- treeToExpr body
+    return $ Let bs b
+   where parseBindings [] = return []
+         parseBindings (STTree [STBare n, v] : bs) = do
+           v' <- treeToExpr v
+           let b1 = (Name n, v')
+           (b1 :) <$> parseBindings bs
+         parseBindings x = Left $ "could not parse bindings:" <> tshow x
   STTree (a:as) -> do
     a' <- treeToExpr a
     as' <- mapM treeToExpr as
