@@ -23,12 +23,15 @@ default-extensions:
 - GeneralizedNewtypeDeriving
 - LambdaCase
 - OverloadedStrings
+- RecordWildCards
 - TypeApplications
 
 dependencies:
 - base >= 4.7 && < 5
 - containers
 - megaparsec
+- mtl
+- shower
 - text
 
 ghc-options:
@@ -50,6 +53,7 @@ executables:
     - -with-rtsopts=-N
     dependencies:
     - haskenthetical
+    - optparse-applicative
 
 tests:
   haskenthetical-test:

@@ -1,4 +1,4 @@
-module Parser where
+module Parser (parseWholeFile, treesToExprs) where
 
 import Data.Bifunctor (first)
 import qualified Data.Text as Text
@@ -55,6 +55,10 @@ stTree = between (symbol "(") (symbol ")") (sepBy stParser sc)
 stWholeFile :: Parser [SyntaxTree]
 stWholeFile = between sc eof (sepBy stParser sc)
 
+parseWholeFile :: String -> String -> Either Text [SyntaxTree]
+parseWholeFile fName input =
+  first (Text.pack . errorBundlePretty) $ parse stWholeFile fName input
+
 treeToExpr :: SyntaxTree -> Either Text Expr
 treeToExpr = \case
   STString s -> return $ Val (String s)
@@ -86,8 +90,3 @@ treeToExpr = \case
 
 treesToExprs :: [SyntaxTree] -> Either Text [Expr]
 treesToExprs = mapM treeToExpr
-
-strToExprs :: String -> Either Text [Expr]
-strToExprs s = do
-  trees <- first (Text.pack . parseErrorPretty) $ parse stWholeFile "<str>" s
-  treesToExprs trees
