@@ -1,9 +1,10 @@
 module Eval (eval, defaultSymbols) where
 
+import Prelude.Extra
+
 import qualified Data.Map.Strict as Map
 
 import Syntax
-import Util
 
 hplus :: Val -> Either Text Val
 hplus (Float a) = Right $ Builtin $ Builtin' "+.1" $ hplus1 a

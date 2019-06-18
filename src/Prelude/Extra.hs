@@ -1,5 +1,5 @@
-module Util
-  ( module Util
+module Prelude.Extra
+  ( module Prelude.Extra
   , Text
   , liftIO
   , when

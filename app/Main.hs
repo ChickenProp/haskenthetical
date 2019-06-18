@@ -1,5 +1,7 @@
 module Main where
 
+import Prelude.Extra
+
 import Control.Monad.Except (liftEither, runExceptT)
 import qualified Data.Text.IO as Text
 import qualified Options.Applicative as O
@@ -7,7 +9,6 @@ import Shower (printer)
 
 import Eval
 import Parser
-import Util
 
 data CmdLine = CmdLine
   { printTree :: Bool

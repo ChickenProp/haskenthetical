@@ -6,11 +6,11 @@ module Syntax
   , Builtin(..)
   ) where
 
+import Prelude.Extra
+
 import Data.Map.Strict (Map)
 import qualified Data.Text as Text
 import GHC.Exts (IsString)
-
-import Util
 
 newtype Name = Name { unName :: Text }
   deriving (Eq, Ord, Show, IsString)
