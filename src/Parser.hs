@@ -71,7 +71,7 @@ treeToExpr = \case
       STBare x -> return $ Name x
       _ -> Left "lambda arg should be a single name"
     b <- treeToExpr body
-    return $ Val $ Lam p b
+    return $ Lam p b
   STTree (STBare "lambda":_) ->
     Left "bad lambda expr"
   STTree [STBare "let", STTree bindings, body] -> do

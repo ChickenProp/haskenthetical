@@ -29,7 +29,6 @@ data Val
   = Float Double
   | String Text
   | Builtin Builtin
-  | Lam Name Expr
   | Clos Env Name Expr
   deriving (Eq, Show)
 
@@ -37,6 +36,7 @@ data Expr
   = Val Val
   | Var Name
   | Let [(Name, Expr)] Expr
+  | Lam Name Expr
   | Call Expr [Expr]
   | Def Name [Name] Expr
   deriving (Eq, Show)
