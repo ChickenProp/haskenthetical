@@ -20,11 +20,13 @@ extra-source-files:
 description:         Please see the README on GitHub at <https://github.com/githubuser/haskenthetical#readme>
 
 default-extensions:
+- FlexibleInstances
 - GeneralizedNewtypeDeriving
 - LambdaCase
 - OverloadedStrings
 - RecordWildCards
 - TypeApplications
+- TypeSynonymInstances
 
 dependencies:
 - base >= 4.7 && < 5
@@ -33,6 +35,7 @@ dependencies:
 - mtl
 - shower
 - text
+- transformers
 
 ghc-options:
 - -Wall

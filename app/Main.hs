@@ -9,10 +9,13 @@ import Shower (printer)
 
 import Eval
 import Parser
+import TypeCheck
 
 data CmdLine = CmdLine
   { printTree :: Bool
   , printExpr :: Bool
+  , printType :: Bool
+  , verbose :: Bool
   , noExec :: Bool
   , program :: String
   }
@@ -21,11 +24,18 @@ parser :: O.Parser CmdLine
 parser = CmdLine
   <$> O.switch (O.long "print-tree" <> O.help "Print the syntax tree")
   <*> O.switch (O.long "print-expr" <> O.help "Print the parsed expressions")
+  <*> O.switch (O.long "print-type" <> O.help "Print the inferred type")
+  <*> O.switch (O.long "verbose" <> O.short 'v' <> O.help "Print everything")
   <*> O.switch (O.long "no-exec" <> O.help "Don't execute the program")
   <*> O.argument O.str (O.metavar "PROGRAM")
 
 main :: IO ()
-main = doCmdLine =<< O.execParser opts
+main = do
+  c <- O.execParser opts
+  let c' = if verbose c
+        then c { printTree = True, printExpr = True, printType = True }
+        else c
+  doCmdLine c'
  where
   opts = O.info (O.helper <*> parser)
     ( O.fullDesc <> O.progDesc "Run a program" )
@@ -36,13 +46,15 @@ doCmdLine (CmdLine {..}) = runExceptT go >>= \case
     putStrLn "failed"
     Text.putStrLn err
   Right Nothing -> return ()
-  Right (Just res) -> print res
+  Right (Just res) -> printer res
  where
   go = do
    trees <- liftEither $ parseWholeFile "<str>" program
    when printTree $ liftIO $ printer trees
    exprs <- liftEither $ treesToExprs trees
    when printExpr $ liftIO $ printer exprs
+   ty <- liftEither $ runTypeCheck defaultTypes (head exprs)
+   when printType $ liftIO $ printer ty
    if noExec
      then return Nothing
      else liftEither $ Just <$> eval defaultSymbols exprs
