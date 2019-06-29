@@ -146,14 +146,12 @@ infer expr = case expr of
     t2 <- extending n sc (infer $ Let bs e)
     return t2
 
-  Call fun [] -> infer fun
-  Call fun [a1] -> do
+  Call fun a -> do
     t1 <- infer fun
-    t2 <- infer a1
+    t2 <- infer a
     tv <- genSym
     unify t1 (t2 :-> tv)
     return tv
-  Call fun (a1:as) -> infer $ Call (Call fun [a1]) as
 
   _ -> error "unimplemented"
 

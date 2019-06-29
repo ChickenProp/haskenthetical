@@ -92,10 +92,12 @@ treeToExpr = \case
            (b1 :) <$> parseBindings bs
          parseBindings x = Left $ "could not parse bindings:" <> tshow x
 
-  STTree (a:as) -> do
-    a' <- treeToExpr a
-    as' <- mapM treeToExpr as
-    return $ Call a' as'
+  STTree [a] -> treeToExpr a
+  STTree [a1, a2] -> do
+    a1' <- treeToExpr a1
+    a2' <- treeToExpr a2
+    return $ Call a1' a2'
+  STTree (a1:a2:as) -> treeToExpr $ STTree $ STTree [a1, a2] : as
 
 treesToExprs :: [SyntaxTree] -> Either Text [Expr]
 treesToExprs = mapM treeToExpr

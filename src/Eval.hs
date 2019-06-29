@@ -40,19 +40,17 @@ eval1 env@(Env syms) (Let ((n, e):bs) expr) = do
 
 eval1 env (Lam name expr) = Right $ Clos env name expr
 
-eval1 env (Call f args) = do
+eval1 env (Call f arg) = do
   vf <- eval1 env f
-  vargs <- mapM (eval1 env) args
-  call env vf vargs
+  varg <- eval1 env arg
+  call vf varg
 
 eval1 _ _ = Left "unsupported expr"
 
 
-call :: Env -> Val -> [Val] -> Either Text Val
-call _ v [] = Right v
-call env (Builtin (Builtin' _ b)) (a:as) = b a >>= \next -> call env next as
-call _ (Clos (Env syms) param body) (a:as) = do
+call :: Val -> Val -> Either Text Val
+call (Builtin (Builtin' _ b)) a = b a
+call (Clos (Env syms) param body) a = do
   let syms2 = Map.insert param a syms
-  res1 <- eval1 (Env syms2) body
-  call (Env syms2) res1 as
-call _ val _ = error $ "attempted to call non-closure " ++ show val
+  eval1 (Env syms2) body
+call val _ = error $ "attempted to call non-closure " ++ show val

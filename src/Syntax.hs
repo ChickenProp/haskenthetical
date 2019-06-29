@@ -37,6 +37,6 @@ data Expr
   | Var Name
   | Let [(Name, Expr)] Expr
   | Lam Name Expr
-  | Call Expr [Expr]
+  | Call Expr Expr
   | Def Name [Name] Expr
   deriving (Eq, Show)
