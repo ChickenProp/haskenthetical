@@ -65,15 +65,22 @@ treeToExpr = \case
   STString s -> return $ Val (String s)
   STFloat f -> return $ Val (Float f)
   STBare b -> return $ Var (Name b)
+
   STTree [] -> Left "() is not currently a thing"
   STTree [STBare "lambda", params, body] -> do
-    p <- case params of
-      STBare x -> return $ Name x
-      _ -> Left "lambda arg should be a single name"
     b <- treeToExpr body
-    return $ Lam p b
+    let go xs = case xs of
+          [] -> Left "lambda needs at least one arg"
+          [(STBare x)] -> return $ Lam (Name x) b
+          ((STBare x):xs') -> Lam (Name x) <$> go xs'
+          _ -> Left "lambda args should be bare"
+    case params of
+      STTree xs -> go xs
+      STBare x -> go [STBare x]
+      _ -> Left "bad lambda arg"
   STTree (STBare "lambda":_) ->
     Left "bad lambda expr"
+
   STTree [STBare "let", STTree bindings, body] -> do
     bs <- parseBindings bindings
     b <- treeToExpr body
@@ -84,6 +91,7 @@ treeToExpr = \case
            let b1 = (Name n, v')
            (b1 :) <$> parseBindings bs
          parseBindings x = Left $ "could not parse bindings:" <> tshow x
+
   STTree (a:as) -> do
     a' <- treeToExpr a
     as' <- mapM treeToExpr as
