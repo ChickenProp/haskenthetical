@@ -3,6 +3,7 @@ module Parser (parseWholeFile, treesToExprs) where
 import Prelude.Extra
 
 import Data.Bifunctor (first)
+import qualified Data.Char as Char
 import qualified Data.Text as Text
 import Data.Void (Void)
 
@@ -30,16 +31,35 @@ data SyntaxTree
   | STTree [SyntaxTree]
   deriving (Eq, Show)
 
+-- Having to list all special characters in one place seems awkward.
+isNonSyntax :: Char -> Bool
+isNonSyntax c = Char.isPrint c
+             && not (Char.isSpace c)
+             && notElem c ("()\"" :: String)
+
 stParser :: Parser SyntaxTree
 stParser =
-      STFloat <$> stFloat
-  <|> STBare <$> stBare
+  -- A bareword can contain numeric characters, it just can't start with
+  -- something that might parse as a number. We can't simply forbid them to
+  -- start with numeric characters, because we need to forbid e.g. "+5x" while
+  -- accepting "+x".
+      STBare <$> (notFollowedBy stFloat' >> stBare)
+  <|> STFloat <$> stFloat
   <|> STString <$> stString
   <|> STTree <$> stTree
 
+stFloat' :: Parser Double
+stFloat' = try (L.signed (pure ()) L.float)
+       <|> try (fromIntegral @Int <$> L.signed (pure ()) L.decimal)
+
 stFloat :: Parser Double
-stFloat = lexeme $ try (L.signed (pure ()) L.float)
-               <|> try (fromIntegral @Int <$> L.signed (pure ()) L.decimal)
+stFloat =
+  -- This forbids `5x` from being parsed as `5 x`. But it accepts `5"foo"` as `5
+  -- "foo"`. We could add more `notFollowedBy`, but maybe the `sepBy` in
+  -- `stTree` is actually the place to look? But that's awkward because we do
+  -- want `(foo)(bar)` to work. So probably we just need to replace `sepBy` with
+  -- something custom. But this works for now.
+  lexeme $ stFloat' <* notFollowedBy stBare
 
 stString :: Parser Text
 stString = Text.pack <$> between (symbol "\"") (symbol "\"") (many alphaNumChar)
@@ -47,8 +67,7 @@ stString = Text.pack <$> between (symbol "\"") (symbol "\"") (many alphaNumChar)
 stBare :: Parser Text
 stBare = fmap Text.pack
   $ lexeme
-  $ try
-  $ some (alphaNumChar <|> char '+')
+  $ takeWhile1P (Just "non-syntax character") isNonSyntax
 
 stTree :: Parser [SyntaxTree]
 stTree = between (symbol "(") (symbol ")") (sepBy stParser sc)
@@ -67,7 +86,7 @@ treeToExpr = \case
   STBare b -> return $ Var (Name b)
 
   STTree [] -> Left "() is not currently a thing"
-  STTree [STBare "lambda", params, body] -> do
+  STTree [STBare "λ", params, body] -> do
     b <- treeToExpr body
     let go xs = case xs of
           [] -> Left "lambda needs at least one arg"
