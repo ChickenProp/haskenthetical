@@ -14,10 +14,11 @@ import Syntax
 newtype TVar = TV Text deriving (Eq, Show, Ord)
 newtype TCon = TC Text deriving (Eq, Show)
 
-data MType = TVar TVar | TCon TCon | MType :-> MType
+data MType = TVar TVar | TCon TCon | MType :-> MType | MType ::* MType
   deriving (Eq, Show)
 
 infixr 4 :-> -- 4 chosen fairly arbitrarily
+infixr 4 ::*
 
 tFloat, tString :: MType
 tFloat = TCon (TC "Float")
@@ -43,6 +44,12 @@ defaultTypes :: TypeEnv
 defaultTypes = TypeEnv $ Map.fromList
   [ ("+", Forall [] (tFloat :-> tFloat :-> tFloat))
   , ("three", Forall [] tFloat)
+  , (",", Forall [TV "a", TV "b"]
+      $ TVar (TV "a") :-> TVar (TV "b") :-> (TVar (TV "a") ::* TVar (TV "b")))
+  , ("car", Forall [TV "a", TV "b"]
+      $ (TVar (TV "a") ::* TVar (TV "b")) :-> TVar (TV "a"))
+  , ("cdr", Forall [TV "a", TV "b"]
+      $ (TVar (TV "a") ::* TVar (TV "b")) :-> TVar (TV "b"))
   ]
 
 newtype Subst = Subst { _subst :: Map TVar MType }
@@ -59,10 +66,12 @@ instance Substitutable MType where
   apply _ (TCon a) = TCon a
   apply (Subst s) t@(TVar a) = Map.findWithDefault t a s
   apply s (t1 :-> t2)  = apply s t1 :-> apply s t2
+  apply s (t1 ::* t2)  = apply s t1 ::* apply s t2
 
   ftv (TCon _) = Set.empty
   ftv (TVar a) = Set.singleton a
   ftv (t1 :-> t2) = ftv t1 `Set.union` ftv t2
+  ftv (t1 ::* t2) = ftv t1 `Set.union` ftv t2
 
 instance Substitutable PType where
   apply (Subst s) (Forall as t) =
@@ -120,7 +129,7 @@ lookupEnv :: Name -> Infer MType
 lookupEnv n = do
   env <- ask
   case tLookup n env of
-    Nothing -> lift $ Left "unbound variable"
+    Nothing -> lift $ Left $ "unbound variable " <> tshow n
     Just t -> instantiate t
 
 unify :: MType -> MType -> Infer ()
@@ -176,6 +185,7 @@ unifies t1 t2 | t1 == t2 = return nullSubst
 unifies (TVar v) t = bind v t
 unifies t (TVar v) = bind v t
 unifies (t11 :-> t12) (t21 :-> t22) = unifiesMany [t11, t12] [t21, t22]
+unifies (t11 ::* t12) (t21 ::* t22) = unifiesMany [t11, t12] [t21, t22]
 unifies a b = Left $ "unification fail: " <> tshow a <> " is not " <> tshow b
 
 unifiesMany :: [MType] -> [MType] -> Solve Subst

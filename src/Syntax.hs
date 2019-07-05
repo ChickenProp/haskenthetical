@@ -30,6 +30,7 @@ data Val
   | String Text
   | Builtin Builtin
   | Clos Env Name Expr
+  | Val :* Val
   deriving (Eq, Show)
 
 data Expr

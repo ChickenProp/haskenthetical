@@ -14,10 +14,27 @@ hplus1 :: Double -> Val -> Either Text Val
 hplus1 a (Float b) = Right $ Float (a + b)
 hplus1 _ _ = Left "+ takes exactly two arguments"
 
+hcons :: Val -> Either Text Val
+hcons v = Right $ Builtin $ Builtin' "cons.1" $ hcons1 v
+
+hcons1 :: Val -> Val -> Either Text Val
+hcons1 v1 v2 = Right $ v1 :* v2
+
+hcar :: Val -> Either Text Val
+hcar (a :* _) = Right a
+hcar _ = Left "car only accepts pairs"
+
+hcdr :: Val -> Either Text Val
+hcdr (_ :* b) = Right b
+hcdr _ = Left "cdr only accepts pairs"
+
 defaultSymbols :: Env
 defaultSymbols = Env $ Map.fromList
   [ ("+", Builtin $ Builtin' "+" hplus)
   , ("three", Float 3)
+  , (",", Builtin $ Builtin' "," hcons)
+  , ("car", Builtin $ Builtin' "," hcar)
+  , ("cdr", Builtin $ Builtin' "," hcdr)
   ]
 
 eval :: Env -> [Expr] -> Either Text Val
