@@ -28,6 +28,17 @@ hcdr :: Val -> Either Text Val
 hcdr (_ :* b) = Right b
 hcdr _ = Left "cdr only accepts pairs"
 
+heither :: Val -> Either Text Val
+heither l = Right $ Builtin $ Builtin' "either.1" $ heither1 l
+
+heither1 :: Val -> Val -> Either Text Val
+heither1 l r = Right $ Builtin $ Builtin' "either.2" $ heither2 l r
+
+heither2 :: Val -> Val -> Val -> Either Text Val
+heither2 l _ (HLeft v) = call l v
+heither2 _ r (HRight v) = call r v
+heither2 _ _ _ = Left "final argument of either must be an Either"
+
 defaultSymbols :: Env
 defaultSymbols = Env $ Map.fromList
   [ ("+", Builtin $ Builtin' "+" hplus)
@@ -35,6 +46,9 @@ defaultSymbols = Env $ Map.fromList
   , (",", Builtin $ Builtin' "," hcons)
   , ("car", Builtin $ Builtin' "," hcar)
   , ("cdr", Builtin $ Builtin' "," hcdr)
+  , ("Left", Builtin $ Builtin' "Left" (Right . HLeft))
+  , ("Right", Builtin $ Builtin' "Right" (Right . HRight))
+  , ("either", Builtin $ Builtin' "either" heither)
   ]
 
 eval :: Env -> [Expr] -> Either Text Val

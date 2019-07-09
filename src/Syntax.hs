@@ -31,6 +31,8 @@ data Val
   | Builtin Builtin
   | Clos Env Name Expr
   | Val :* Val
+  | HLeft Val
+  | HRight Val
   deriving (Eq, Show)
 
 data Expr
