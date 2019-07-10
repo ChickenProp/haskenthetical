@@ -7,6 +7,7 @@ import qualified Data.Text.IO as Text
 import qualified Options.Applicative as O
 import Shower (printer)
 
+import Defaults
 import Eval
 import Parser
 import TypeCheck
@@ -28,6 +29,8 @@ parser = CmdLine
   <*> O.switch (O.long "verbose" <> O.short 'v' <> O.help "Print everything")
   <*> O.switch (O.long "no-exec" <> O.help "Don't execute the program")
   <*> O.argument O.str (O.metavar "PROGRAM")
+
+
 
 main :: IO ()
 main = do

@@ -1,4 +1,12 @@
-module TypeCheck (runTypeCheck, defaultTypes) where
+module TypeCheck
+  ( TypeEnv(..)
+  , MType(..)
+  , PType(..)
+  , TVar(..)
+  , tFloat
+  , tString
+  , runTypeCheck
+  ) where
 
 import Prelude.Extra
 
@@ -44,26 +52,6 @@ tLookup n (TypeEnv m) = Map.lookup n m
 
 extending :: Name -> PType -> Infer a -> Infer a
 extending n t m = local (tInsert n t) m
-
--- TODO: unify this with defaultSymbols
-defaultTypes :: TypeEnv
-defaultTypes = TypeEnv $ Map.fromList
-  [ ("+", Forall [] (tFloat :-> tFloat :-> tFloat))
-  , ("three", Forall [] tFloat)
-  , (",", Forall [a', b'] $ a :-> b :-> (a ::* b))
-  , ("car", Forall [a', b'] $ (a ::* b) :-> a)
-  , ("cdr", Forall [a', b'] $ (a ::* b) :-> b)
-  , ("Left", Forall [a', b'] $ a :-> (a ::+ b))
-  , ("Right", Forall [a', b'] $ b :-> (a ::+ b))
-  , ("either", Forall [a', b', c']
-      $ (a :-> c) :-> (b :-> c) :-> (a ::+ b) :-> c)
-  ]
-  where a' = TV "a"
-        a = TVar a'
-        b' = TV "b"
-        b = TVar b'
-        c' = TV "c"
-        c = TVar c'
 
 newtype Subst = Subst { _subst :: Map TVar MType }
   deriving (Eq, Show)
