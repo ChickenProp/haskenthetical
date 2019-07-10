@@ -33,29 +33,17 @@ heither l = rbb "either.1" $ \r -> rbb "either.2" $ \case
   HRight v -> call r v
   _ -> Left "final argument of either must be an Either"
 
-defaultSymbols :: Env
-defaultSymbols = Env $ Map.fromList
-  [ ("+", Builtin $ Builtin' "+" hplus)
-  , (",", Builtin $ Builtin' "," hcons)
-  , ("car", Builtin $ Builtin' "car" hcar)
-  , ("cdr", Builtin $ Builtin' "cdr" hcdr)
-  , ("Left", Builtin $ Builtin' "Left" (Right . HLeft))
-  , ("Right", Builtin $ Builtin' "Right" (Right . HRight))
-  , ("either", Builtin $ Builtin' "either" heither)
-  ]
-
--- TODO: unify this with defaultSymbols
-defaultTypes :: TypeEnv
-defaultTypes = TypeEnv $ Map.fromList
-  [ ("+", Forall [] (tFloat :-> tFloat :-> tFloat))
-  , ("three", Forall [] tFloat)
-  , (",", Forall [a', b'] $ a :-> b :-> (a ::* b))
-  , ("car", Forall [a', b'] $ (a ::* b) :-> a)
-  , ("cdr", Forall [a', b'] $ (a ::* b) :-> b)
-  , ("Left", Forall [a', b'] $ a :-> (a ::+ b))
-  , ("Right", Forall [a', b'] $ b :-> (a ::+ b))
-  , ("either", Forall [a', b', c']
-      $ (a :-> c) :-> (b :-> c) :-> (a ::+ b) :-> c)
+defaults :: Map Name (Val, PType)
+defaults = Map.fromList
+  [ "+" ~~ bb "+" hplus ~~ Forall [] (tFloat :-> tFloat :-> tFloat)
+  , "," ~~ bb "," hcons ~~ Forall [a', b'] (a :-> b :-> (a ::* b))
+  , "car" ~~ bb "car" hcar ~~ Forall [a', b'] ((a ::* b) :-> a)
+  , "cdr" ~~ bb "cdr" hcdr ~~ Forall [a', b'] ((a ::* b) :-> b)
+  , "Left" ~~ bb "Left" (Right . HLeft) ~~ Forall [a', b'] (a :-> (a ::+ b))
+  , "Right" ~~ bb "Right" (Right . HRight) ~~ Forall [a', b'] (b :-> (a ::+ b))
+  , "either"
+      ~~ bb "either" heither
+      ~~ Forall [a', b', c'] ((a :-> c) :-> (b :-> c) :-> (a ::+ b) :-> c)
   ]
   where a' = TV "a"
         a = TVar a'
@@ -63,3 +51,13 @@ defaultTypes = TypeEnv $ Map.fromList
         b = TVar b'
         c' = TV "c"
         c = TVar c'
+
+        bb n f = Builtin (Builtin' n f)
+        infixr 1 ~~
+        (~~) = (,)
+
+defaultSymbols :: Env
+defaultSymbols = Env $ fst <$> defaults
+
+defaultTypes :: TypeEnv
+defaultTypes = TypeEnv $ snd <$> defaults
