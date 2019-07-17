@@ -110,6 +110,14 @@ treeToExpr = \case
            let b1 = (Name n, v')
            (b1 :) <$> parseBindings bs
          parseBindings x = Left $ "could not parse bindings:" <> tshow x
+  STTree (STBare "let":_) ->
+    Left "bad let"
+
+  STTree [STBare "def", STBare name, body] -> do
+    b <- treeToExpr body
+    return $ Def (Name name) b
+  STTree (STBare "def" : _) ->
+    Left "bad Def"
 
   STTree [a] -> treeToExpr a
   STTree [a1, a2] -> do

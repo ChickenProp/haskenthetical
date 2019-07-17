@@ -56,8 +56,9 @@ doCmdLine (CmdLine {..}) = runExceptT go >>= \case
    when printTree $ liftIO $ printer trees
    exprs <- liftEither $ treesToExprs trees
    when printExpr $ liftIO $ printer exprs
-   ty <- liftEither $ runTypeCheck defaultTypes (head exprs)
+   expr1 <- liftEither $ def2let exprs
+   ty <- liftEither $ runTypeCheck defaultTypes expr1
    when printType $ liftIO $ printer ty
    if noExec
      then return Nothing
-     else liftEither $ Just <$> eval defaultSymbols exprs
+     else liftEither $ Just <$> eval1 defaultSymbols expr1

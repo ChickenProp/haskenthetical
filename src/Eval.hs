@@ -1,15 +1,30 @@
-module Eval (call, eval) where
+module Eval (call, eval1, def2let) where
 
 import Prelude.Extra
 
+import Data.List (sortOn)
 import qualified Data.Map.Strict as Map
 
 import Syntax
 
-eval :: Env -> [Expr] -> Either Text Val
-eval _ [] = Left "need at least one expr"
-eval syms [e] = eval1 syms e
-eval _ _ = Left "unsupported"
+isStatement :: Expr -> Bool
+isStatement = \case
+  Val _ -> False
+  Var _ -> False
+  Let _ _ -> False
+  Lam _ _ -> False
+  Call _ _ -> False
+  Def _ _ -> True
+
+def2let :: [Expr] -> Either Text Expr
+def2let exprs = go [] $ sortOn (not . isStatement) exprs
+ where
+  go pairs = \case
+   [] -> Left "need at least one expr"
+   [Def _ _] -> Left "need a non-Def"
+   [e] -> Right $ Let pairs e
+   Def n1 e1 : e -> go ((n1, e1):pairs) e
+   _ -> Left $ "can only have one non-Def" <> tshow exprs
 
 eval1 :: Env -> Expr -> Either Text Val
 eval1 env@(Env syms) = \case
@@ -31,7 +46,7 @@ eval1 env@(Env syms) = \case
     varg <- eval1 env arg
     call vf varg
 
-  _ -> Left "unsupported expr"
+  Def _ _ -> Left "Def should have been handled"
 
 call :: Val -> Val -> Either Text Val
 call (Builtin (Builtin' _ b)) a = b a
