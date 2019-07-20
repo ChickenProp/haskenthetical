@@ -11,8 +11,10 @@ module TypeCheck
 import Prelude.Extra
 
 import Control.Monad (replicateM)
+import Control.Monad.Except (liftEither)
 import Control.Monad.Trans (lift)
-import Control.Monad.RWS.Strict (RWST, runRWST, tell, local, get, put, ask)
+import Control.Monad.RWS.Strict
+  (RWST, runRWST, tell, local, get, put, ask, listen)
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import qualified Data.Text as Text
@@ -99,6 +101,12 @@ instance Substitutable TypeEnv where
 -- this type must be equal". In the Solve phase, we generate a substitution from
 -- those constraints, which expands all type variables as far as possible to
 -- concrete types.
+--
+-- But they can't be totally separated, because we need to run the solver
+-- whenever we generalize a variable during inference. Otherwise, suppose we
+-- have a type variable `e` and we know it unifies with `Float`. We'll
+-- generalize `e` to `Forall [e] e`, and then that won't unify with `Float`. By
+-- running the solver, we instead generalize `Float` to `Forall [] Float`.
 
 runTypeCheck :: TypeEnv -> Expr -> Either Text PType
 runTypeCheck env expr = do
@@ -153,8 +161,9 @@ infer expr = case expr of
   Let [] e -> infer e
   Let ((n, e1):bs) e -> do
     env <- ask
-    t1 <- infer e1
-    let sc = generalize env t1
+    (t1, constraints) <- listen $ infer e1
+    subst <- liftEither $ solver1 constraints
+    let sc = generalize env (apply subst t1)
     t2 <- extending n sc (infer $ Let bs e)
     return t2
 
