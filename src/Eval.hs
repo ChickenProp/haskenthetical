@@ -12,6 +12,7 @@ isStatement = \case
   Val _ -> False
   Var _ -> False
   Let _ _ -> False
+  LetRec _ _ -> False
   Lam _ _ -> False
   Call _ _ -> False
   Def _ _ -> True
@@ -28,16 +29,23 @@ def2let exprs = go [] $ sortOn (not . isStatement) exprs
 
 eval1 :: Env -> Expr -> Either Text Val
 eval1 env@(Env syms) = \case
+  Val (Thunk (Thunk' _ f)) -> f ()
   Val x -> Right x
 
   Var x -> case Map.lookup x syms of
     Nothing -> Left $ "no such var: " <> tshow x
-    Just v -> Right v
+    Just v -> eval1 env (Val v)
 
   Let [] expr -> eval1 env expr
   Let ((n, e):bs) expr -> do
     v <- eval1 env e
     eval1 (Env $ Map.insert n v syms) (Let bs expr)
+
+  LetRec [] expr -> eval1 env expr
+  LetRec [(n, e)] expr -> do
+    let thunk = Thunk' n $ \() -> eval1 newenv e
+        newenv = Env $ Map.insert n (Thunk thunk) syms
+    eval1 newenv expr
 
   Lam name expr -> Right $ Clos env name expr
 

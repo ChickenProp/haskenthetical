@@ -113,6 +113,19 @@ treeToExpr = \case
   STTree (STBare "let":_) ->
     Left "bad let"
 
+  STTree [STBare "letrec", STTree bindings, body] -> do
+    bs <- parseBindings bindings
+    b <- treeToExpr body
+    return $ LetRec bs b
+   where parseBindings [] = return []
+         parseBindings (STTree [STBare n, v] : bs) = do
+           v' <- treeToExpr v
+           let b1 = (Name n, v')
+           (b1 :) <$> parseBindings bs
+         parseBindings x = Left $ "could not parse bindings:" <> tshow x
+  STTree (STBare "letrec":_) ->
+    Left "bad letrec"
+
   STTree [STBare "def", STBare name, body] -> do
     b <- treeToExpr body
     return $ Def (Name name) b

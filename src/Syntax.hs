@@ -4,6 +4,7 @@ module Syntax
   , Expr(..)
   , Val(..)
   , Builtin(..)
+  , Thunk(..)
   ) where
 
 import Prelude.Extra
@@ -22,6 +23,14 @@ instance Show Builtin where
 instance Eq Builtin where
   Builtin' n1 _ == Builtin' n2 _ = n1 == n2
 
+-- LetRec needs us to be able to evaluate an expr with a pointer to itself in
+-- its environment. For that we need some form of delayed execution.
+data Thunk = Thunk' Name (() -> Either Text Val)
+instance Show Thunk where
+  show (Thunk' (Name n) _) = "<thunk " ++ Text.unpack n ++ ">"
+instance Eq Thunk where
+  Thunk' n1 _ == Thunk' n2 _ = n1 == n2
+
 newtype Env = Env { unEnv :: Map Name Val }
   deriving (Eq, Show)
 
@@ -29,6 +38,7 @@ data Val
   = Float Double
   | String Text
   | Builtin Builtin
+  | Thunk Thunk
   | Clos Env Name Expr
   | Val :* Val
   | HLeft Val
@@ -39,6 +49,7 @@ data Expr
   = Val Val
   | Var Name
   | Let [(Name, Expr)] Expr
+  | LetRec [(Name, Expr)] Expr
   | Lam Name Expr
   | Call Expr Expr
   | Def Name Expr

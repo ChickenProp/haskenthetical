@@ -43,7 +43,7 @@ tString = TCon (TC "String")
 data PType = Forall [TVar] MType
   deriving (Eq, Show)
 
-newtype TypeEnv = TypeEnv { _unTypeEnv :: Map Name PType }
+newtype TypeEnv = TypeEnv { _unTypeEnv :: Map Name PType } deriving (Show)
 type Constraint = (MType, MType)
 
 tInsert :: Name -> PType -> TypeEnv -> TypeEnv
@@ -150,6 +150,7 @@ infer :: Expr -> Infer MType
 infer expr = case expr of
   Val (Float _) -> return tFloat
   Val (String _) -> return tString
+  Val v -> error $ "unexpected Val during typechecking: " ++ show v
 
   Var n -> lookupEnv n
 
@@ -167,6 +168,17 @@ infer expr = case expr of
     t2 <- extending n sc (infer $ Let bs e)
     return t2
 
+  LetRec [] e -> infer e
+  LetRec [(n, e1)] e -> do
+    env <- ask
+    tv <- genSym
+    (t1, constraints) <- listen $ extending n (Forall [] tv) (infer e1)
+    unify tv t1
+    subst <- liftEither $ solver1 constraints
+    let sc = generalize env (apply subst t1)
+    t2 <- extending n sc (infer e)
+    return t2
+
   Call fun a -> do
     t1 <- infer fun
     t2 <- infer a
@@ -174,7 +186,7 @@ infer expr = case expr of
     unify t1 (t2 :-> tv)
     return tv
 
-  _ -> error "unimplemented"
+  Def _ _ -> error "shouldn't have a Def here"
 
 ---
 
