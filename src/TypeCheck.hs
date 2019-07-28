@@ -49,6 +49,9 @@ type Constraint = (MType, MType)
 tInsert :: Name -> PType -> TypeEnv -> TypeEnv
 tInsert n t (TypeEnv m) = TypeEnv $ Map.insert n t m
 
+tInsertMany :: [(Name, PType)] -> TypeEnv -> TypeEnv
+tInsertMany bs (TypeEnv m) = TypeEnv $ Map.union (Map.fromList bs) m
+
 tLookup :: Name -> TypeEnv -> Maybe PType
 tLookup n (TypeEnv m) = Map.lookup n m
 
@@ -164,20 +167,24 @@ infer expr = case expr of
     env <- ask
     (t1, constraints) <- listen $ infer e1
     subst <- liftEither $ solver1 constraints
-    let sc = generalize env (apply subst t1)
-    t2 <- extending n sc (infer $ Let bs e)
+    let gen = generalize env (apply subst t1)
+    t2 <- extending n gen (infer $ Let bs e)
     return t2
 
-  LetRec [] e -> infer e
-  LetRec [(n, e1)] e -> do
+  LetRec bindings e -> do
     env <- ask
-    tv <- genSym
-    (t1, constraints) <- listen $ extending n (Forall [] tv) (infer e1)
-    unify tv t1
+    tvs <- forM bindings $ \_ -> genSym
+    let tBindings = flip map (zip tvs bindings) $ \(tv, (n, _)) ->
+          (n, Forall [] tv)
+    (t1s, constraints) <- listen $ forM (zip tvs bindings)
+      $ \(tv, (_, e1)) -> do
+        t1 <- local (tInsertMany tBindings) (infer e1)
+        unify tv t1
+        return t1
     subst <- liftEither $ solver1 constraints
-    let sc = generalize env (apply subst t1)
-    t2 <- extending n sc (infer e)
-    return t2
+    let gens = flip map (zip bindings t1s) $ \((n, _), t1) ->
+          (n, generalize env (apply subst t1))
+    seq gens $ local (tInsertMany gens) $ infer e
 
   Call fun a -> do
     t1 <- infer fun

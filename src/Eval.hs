@@ -41,10 +41,10 @@ eval1 env@(Env syms) = \case
     v <- eval1 env e
     eval1 (Env $ Map.insert n v syms) (Let bs expr)
 
-  LetRec [] expr -> eval1 env expr
-  LetRec [(n, e)] expr -> do
-    let thunk = Thunk' n $ \() -> eval1 newenv e
-        newenv = Env $ Map.insert n (Thunk thunk) syms
+  LetRec bindings expr -> do
+    let thunks = flip map bindings $ \(n, e) ->
+          (n, Thunk $ Thunk' n $ \() -> eval1 newenv e)
+        newenv = Env $ Map.union (Map.fromList thunks) syms
     eval1 newenv expr
 
   Lam name expr -> Right $ Clos env name expr

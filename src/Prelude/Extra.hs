@@ -2,12 +2,13 @@ module Prelude.Extra
   ( module Prelude.Extra
   , Text
   , Map
+  , forM
   , liftIO
   , when
   )
 where
 
-import Control.Monad (when)
+import Control.Monad (forM, when)
 import Control.Monad.Trans (liftIO)
 import Data.Map (Map)
 import Data.Text (Text)
