@@ -24,6 +24,7 @@ default-extensions:
 - GeneralizedNewtypeDeriving
 - LambdaCase
 - OverloadedStrings
+- QuasiQuotes
 - RecordWildCards
 - TypeApplications
 - TypeSynonymInstances
@@ -31,6 +32,7 @@ default-extensions:
 dependencies:
 - base >= 4.7 && < 5
 - containers
+- interpolatedstring-perl6
 - megaparsec
 - mtl
 - shower
@@ -68,3 +70,4 @@ tests:
     - -with-rtsopts=-N
     dependencies:
     - haskenthetical
+    - hspec
