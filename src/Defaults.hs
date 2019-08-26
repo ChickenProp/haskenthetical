@@ -16,6 +16,18 @@ hplus (Float a) = rbb "+.1" $ \case
   _ -> Left "+ only accepts floats"
 hplus _ = Left "+ only accepts floats"
 
+hminus :: Val -> Either Text Val
+hminus (Float a) = rbb "-.1" $ \case
+  Float b -> Right $ Float (a - b)
+  _ -> Left "- only accepts floats"
+hminus _ = Left "- only accepts floats"
+
+htimes :: Val -> Either Text Val
+htimes (Float a) = rbb "*.1" $ \case
+  Float b -> Right $ Float (a * b)
+  _ -> Left "* only accepts floats"
+htimes _ = Left "* only accepts floats"
+
 hcons :: Val -> Either Text Val
 hcons v1 = rbb "cons.1" $ \v2 -> Right $ v1 :* v2
 
@@ -33,9 +45,16 @@ heither l = rbb "either.1" $ \r -> rbb "either.2" $ \case
   HRight v -> call r v
   _ -> Left "final argument of either must be an Either"
 
+hif0 :: Val -> Either Text Val
+hif0 (Float v) = rbb "if0.1" $ \then_ -> rbb "if0.2" $ \else_ ->
+  if v == 0 then Right then_ else Right else_
+hif0 _ = Left "first arg to if0 must be a Float"
+
 defaults :: Map Name (Val, PType)
 defaults = Map.fromList
   [ "+" ~~ bb "+" hplus ~~ Forall [] (tFloat :-> tFloat :-> tFloat)
+  , "-" ~~ bb "-" hminus ~~ Forall [] (tFloat :-> tFloat :-> tFloat)
+  , "*" ~~ bb "*" htimes ~~ Forall [] (tFloat :-> tFloat :-> tFloat)
   , "," ~~ bb "," hcons ~~ Forall [a', b'] (a :-> b :-> (a ::* b))
   , "car" ~~ bb "car" hcar ~~ Forall [a', b'] ((a ::* b) :-> a)
   , "cdr" ~~ bb "cdr" hcdr ~~ Forall [a', b'] ((a ::* b) :-> b)
@@ -44,6 +63,7 @@ defaults = Map.fromList
   , "either"
       ~~ bb "either" heither
       ~~ Forall [a', b', c'] ((a :-> c) :-> (b :-> c) :-> (a ::+ b) :-> c)
+  , "if0" ~~ bb "if0" hif0  ~~ Forall [a'] (tFloat :-> a :-> a :-> a)
   ]
   where a' = TV "a"
         a = TVar a'

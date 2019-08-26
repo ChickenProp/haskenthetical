@@ -66,6 +66,17 @@ main = hspec $ do
       "(+ 3 (+ 4 5))" `returns` Float 12
       "(+ (+ 3 4) 5)" `returns` Float 12
       "(+ (+ 3.2 4.1) 5.3)" `returns` Float 12.6
+      "(- 3 4)" `returns` Float (-1)
+      "(* 7.2 3.1)" `returns` Float 22.32
+
+    it "if0" $ do
+      [q|(if0 0 "foo" "bar")|] `returns` String "foo"
+      [q|(if0 1 "foo" "bar")|] `returns` String "bar"
+
+    it "factorial" $ do
+      -- if0 evaluates both branches, so we use thunks to stop infinite loops
+      [q|(letrec ((fac (λ x ((if0 x (λ s 1) (λ s (* x (fac (- x 1))))) 1))))
+           (fac 3))|] `returns` Float 6
 
     it "letrec" $ do
       [q|(letrec ((id (λ x x))
