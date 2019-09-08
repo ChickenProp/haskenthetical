@@ -3,6 +3,9 @@ module TypeCheck
   , MType(..)
   , PType(..)
   , TVar(..)
+  , (+->)
+  , (+:*)
+  , (+:+)
   , tFloat
   , tString
   , runTypeCheck
@@ -21,24 +24,34 @@ import qualified Data.Text as Text
 
 import Syntax
 
+data Kind = HType | Kind :*-> Kind
+  deriving (Eq, Show)
+
 newtype TVar = TV Text deriving (Eq, Show, Ord)
-newtype TCon = TC Text deriving (Eq, Show)
+data TCon = TC Text Kind deriving (Eq, Show)
 
 data MType
   = TVar TVar
   | TCon TCon
-  | MType :-> MType
-  | MType ::* MType
-  | MType ::+ MType
+  | TApp MType MType
   deriving (Eq, Show)
 
-infixr 4 :-> -- 4 chosen fairly arbitrarily
-infixr 4 ::*
-infixr 4 ::+
+(+->) :: MType -> MType -> MType
+a +-> b = TApp (TApp (TCon $ TC "->" $ HType :*-> HType) a) b
+
+(+:*) :: MType -> MType -> MType
+a +:* b = TApp (TApp (TCon $ TC "," $ HType :*-> HType) a) b
+
+(+:+) :: MType -> MType -> MType
+a +:+ b = TApp (TApp (TCon $ TC "+" $ HType :*-> HType) a) b
+
+infixr 4 +-> -- 4 chosen fairly arbitrarily
+infixr 4 +:*
+infixr 4 +:+
 
 tFloat, tString :: MType
-tFloat = TCon (TC "Float")
-tString = TCon (TC "String")
+tFloat = TCon (TC "Float" HType)
+tString = TCon (TC "String" HType)
 
 data PType = Forall [TVar] MType
   deriving (Eq, Show)
@@ -71,15 +84,11 @@ class Substitutable a where
 instance Substitutable MType where
   apply _ (TCon a) = TCon a
   apply (Subst s) t@(TVar a) = Map.findWithDefault t a s
-  apply s (t1 :-> t2)  = apply s t1 :-> apply s t2
-  apply s (t1 ::* t2)  = apply s t1 ::* apply s t2
-  apply s (t1 ::+ t2)  = apply s t1 ::+ apply s t2
+  apply s (t1 `TApp` t2) = apply s t1 `TApp` apply s t2
 
   ftv (TCon _) = Set.empty
   ftv (TVar a) = Set.singleton a
-  ftv (t1 :-> t2) = ftv t1 `Set.union` ftv t2
-  ftv (t1 ::* t2) = ftv t1 `Set.union` ftv t2
-  ftv (t1 ::+ t2) = ftv t1 `Set.union` ftv t2
+  ftv (t1 `TApp` t2) = ftv t1 `Set.union` ftv t2
 
 instance Substitutable PType where
   apply (Subst s) (Forall as t) =
@@ -160,7 +169,7 @@ infer expr = case expr of
   Lam x e -> do
     tv <- genSym
     t <- extending x (Forall [] tv) (infer e)
-    return $ tv :-> t
+    return $ tv +-> t
 
   Let [] e -> infer e
   Let ((n, e1):bs) e -> do
@@ -190,7 +199,7 @@ infer expr = case expr of
     t1 <- infer fun
     t2 <- infer a
     tv <- genSym
-    unify t1 (t2 :-> tv)
+    unify t1 (t2 +-> tv)
     return tv
 
   Def _ _ -> error "shouldn't have a Def here"
@@ -215,14 +224,19 @@ unifies :: MType -> MType -> Solve Subst
 unifies t1 t2 | t1 == t2 = return nullSubst
 unifies (TVar v) t = bind v t
 unifies t (TVar v) = bind v t
-unifies (t11 :-> t12) (t21 :-> t22) = unifiesMany [t11, t12] [t21, t22]
-unifies (t11 ::* t12) (t21 ::* t22) = unifiesMany [t11, t12] [t21, t22]
-unifies (t11 ::+ t12) (t21 ::+ t22) = unifiesMany [t11, t12] [t21, t22]
+unifies t1@(t11 `TApp` t12) t2@(t21 `TApp` t22)
+  -- The root of a type application must be a fixed constructor, not a type
+  -- variable. I'm not entirely sure why, and may just remove this restriction
+  -- in future.
+  | isTVar t11 || isTVar t21
+  = Left $ "Root must be fixed constructor. Got: " <> tshow (t1, t2)
+  | otherwise = unifiesMany [t11, t12] [t21, t22]
+  where isTVar = \case { TVar _ -> True; TCon _ -> False; TApp _ _ -> False }
 unifies a b = Left $ "unification fail: " <> tshow a <> " is not " <> tshow b
 
 unifiesMany :: [MType] -> [MType] -> Solve Subst
 unifiesMany [] [] = return nullSubst
-unifiesMany (t1: ts1) (t2 : ts2) = do
+unifiesMany (t1 : ts1) (t2 : ts2) = do
   su1 <- unifies t1 t2
   su2 <- unifiesMany (apply su1 ts1) (apply su1 ts2)
   return (su2 `compose` su1)

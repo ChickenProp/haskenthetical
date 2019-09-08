@@ -52,18 +52,18 @@ hif0 _ = Left "first arg to if0 must be a Float"
 
 defaults :: Map Name (Val, PType)
 defaults = Map.fromList
-  [ "+" ~~ bb "+" hplus ~~ Forall [] (tFloat :-> tFloat :-> tFloat)
-  , "-" ~~ bb "-" hminus ~~ Forall [] (tFloat :-> tFloat :-> tFloat)
-  , "*" ~~ bb "*" htimes ~~ Forall [] (tFloat :-> tFloat :-> tFloat)
-  , "," ~~ bb "," hcons ~~ Forall [a', b'] (a :-> b :-> (a ::* b))
-  , "car" ~~ bb "car" hcar ~~ Forall [a', b'] ((a ::* b) :-> a)
-  , "cdr" ~~ bb "cdr" hcdr ~~ Forall [a', b'] ((a ::* b) :-> b)
-  , "Left" ~~ bb "Left" (Right . HLeft) ~~ Forall [a', b'] (a :-> (a ::+ b))
-  , "Right" ~~ bb "Right" (Right . HRight) ~~ Forall [a', b'] (b :-> (a ::+ b))
+  [ "+" ~~ bb "+" hplus ~~ Forall [] (tFloat +-> tFloat +-> tFloat)
+  , "-" ~~ bb "-" hminus ~~ Forall [] (tFloat +-> tFloat +-> tFloat)
+  , "*" ~~ bb "*" htimes ~~ Forall [] (tFloat +-> tFloat +-> tFloat)
+  , "," ~~ bb "," hcons ~~ Forall [a', b'] (a +-> b +-> (a +:* b))
+  , "car" ~~ bb "car" hcar ~~ Forall [a', b'] ((a +:* b) +-> a)
+  , "cdr" ~~ bb "cdr" hcdr ~~ Forall [a', b'] ((a +:* b) +-> b)
+  , "Left" ~~ bb "Left" (Right . HLeft) ~~ Forall [a', b'] (a +-> (a +:+ b))
+  , "Right" ~~ bb "Right" (Right . HRight) ~~ Forall [a', b'] (b +-> (a +:+ b))
   , "either"
       ~~ bb "either" heither
-      ~~ Forall [a', b', c'] ((a :-> c) :-> (b :-> c) :-> (a ::+ b) :-> c)
-  , "if0" ~~ bb "if0" hif0  ~~ Forall [a'] (tFloat :-> a :-> a :-> a)
+      ~~ Forall [a', b', c'] ((a +-> c) +-> (b +-> c) +-> (a +:+ b) +-> c)
+  , "if0" ~~ bb "if0" hif0  ~~ Forall [a'] (tFloat +-> a +-> a +-> a)
   ]
   where a' = TV "a"
         a = TVar a'

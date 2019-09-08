@@ -40,10 +40,10 @@ main = hspec $ do
       [q|"foo"|] `hasType` Forall [] tString
 
     it "accepts lambdas" $ do
-      "(λ x x)" `hasType` Forall [TV "a"] (TVar (TV "a") :-> TVar (TV "a"))
+      "(λ x x)" `hasType` Forall [TV "a"] (TVar (TV "a") +-> TVar (TV "a"))
 
     it "applies functions" $ do
-      "(+ 1)" `hasType` Forall [] (tFloat :-> tFloat)
+      "(+ 1)" `hasType` Forall [] (tFloat +-> tFloat)
       "(+ 1 2)" `hasType` Forall [] tFloat
 
     it "rejects poly typed lambda args" $ do
@@ -51,7 +51,7 @@ main = hspec $ do
 
     it "accepts poly typed let args" $ do
       [q|(let ((f (λ x (, x x)))) (, (f 3) (f "")))|]
-        `hasType` Forall [] ((tFloat ::* tFloat) ::* (tString ::* tString))
+        `hasType` Forall [] ((tFloat +:* tFloat) +:* (tString +:* tString))
 
   describe "Evaluation" $ do
     let returns :: String -> Val -> Expectation
