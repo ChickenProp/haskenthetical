@@ -18,6 +18,7 @@ import Control.Monad.Except (liftEither)
 import Control.Monad.Trans (lift)
 import Control.Monad.RWS.Strict
   (RWST, runRWST, tell, local, get, put, ask, listen)
+import qualified Data.List.NonEmpty as NE
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import qualified Data.Text as Text
@@ -120,9 +121,9 @@ instance Substitutable TypeEnv where
 -- generalize `e` to `Forall [e] e`, and then that won't unify with `Float`. By
 -- running the solver, we instead generalize `Float` to `Forall [] Float`.
 
-runTypeCheck :: TypeEnv -> Expr -> Either Text PType
+runTypeCheck :: TypeEnv -> Typed Expr -> Either Text PType
 runTypeCheck env expr = do
-  (ty, _, constraints) <- runRWST (infer expr) env (InferState letters)
+  (ty, _, constraints) <- runRWST (inferTyped expr) env (InferState letters)
   subst <- solver1 constraints
   return $ generalize env $ apply subst ty
   where letters = map (TV . Text.pack) $ [1..] >>= flip replicateM ['a'..'z']
@@ -157,6 +158,20 @@ lookupEnv n = do
 
 unify :: MType -> MType -> Infer ()
 unify t1 t2 = tell [(t1, t2)]
+
+parseType :: NE.NonEmpty Name -> Infer PType
+parseType = \case
+  ("Float" NE.:| []) -> return $ Forall [] tFloat
+  ("String" NE.:| []) -> return $ Forall [] tString
+  _ -> error "no good type parsing yet"
+
+inferTyped :: Typed Expr -> Infer MType
+inferTyped (UnTyped e) = infer e
+inferTyped (Typed t e) = do
+  t' <- instantiate =<< parseType t
+  e' <- infer e
+  unify t' e'
+  return t'
 
 infer :: Expr -> Infer MType
 infer expr = case expr of

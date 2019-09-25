@@ -10,6 +10,7 @@ import Shower (printer)
 import Defaults
 import Eval
 import Parser
+import Syntax
 import TypeCheck
 
 data CmdLine = CmdLine
@@ -61,4 +62,4 @@ doCmdLine (CmdLine {..}) = runExceptT go >>= \case
    when printType $ liftIO $ printer ty
    if noExec
      then return Nothing
-     else liftEither $ Just <$> eval1 defaultSymbols expr1
+     else liftEither $ Just <$> eval1 defaultSymbols (rmType expr1)

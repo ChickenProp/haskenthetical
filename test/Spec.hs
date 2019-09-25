@@ -24,7 +24,7 @@ runEval program = do
    exprs <- treesToExprs trees
    expr1 <- def2let exprs
    void $ runTypeCheck defaultTypes expr1
-   eval1 defaultSymbols expr1
+   eval1 defaultSymbols (rmType expr1)
 
 main :: IO ()
 main = hspec $ do
@@ -52,6 +52,14 @@ main = hspec $ do
     it "accepts poly typed let args" $ do
       [q|(let ((f (λ x (, x x)))) (, (f 3) (f "")))|]
         `hasType` Forall [] ((tFloat +:* tFloat) +:* (tString +:* tString))
+
+    it "accepts typed constants" $ do
+      "(: Float 3)" `hasType` Forall [] tFloat
+      [q|(: String "foo")|] `hasType` Forall [] tString
+
+    it "rejects incorrectly typed constants" $ do
+      tcFails "(: String 3)"
+      tcFails [q|(: Float "foo")|]
 
   describe "Evaluation" $ do
     let returns :: String -> Val -> Expectation

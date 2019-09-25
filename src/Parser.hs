@@ -4,6 +4,7 @@ import Prelude.Extra
 
 import Data.Bifunctor (first)
 import qualified Data.Char as Char
+import qualified Data.List.NonEmpty as NE
 import qualified Data.Text as Text
 import Data.Void (Void)
 
@@ -79,35 +80,45 @@ parseWholeFile :: String -> String -> Either Text [SyntaxTree]
 parseWholeFile fName input =
   first (Text.pack . errorBundlePretty) $ parse stWholeFile fName input
 
-treeToExpr :: SyntaxTree -> Either Text Expr
+treeToExpr :: SyntaxTree -> Either Text (Typed Expr)
 treeToExpr = \case
-  STString s -> return $ Val (String s)
-  STFloat f -> return $ Val (Float f)
-  STBare b -> return $ Var (Name b)
+  STString s -> unTyped $ Val (String s)
+  STFloat f -> unTyped $ Val (Float f)
+  STBare b -> unTyped $ Var (Name b)
 
   STTree [] -> Left "() is not currently a thing"
+
+  STTree [STBare ":", typ, expr] -> do
+    typ' <- case typ of
+      STBare b -> return $ Name b NE.:| []
+      _ -> Left "bad type"
+    expr' <- treeToExpr expr
+    case expr' of
+      Typed _ _ -> Left "can't type something twice" -- any reason why not?
+      UnTyped e -> typed typ' e
+
   STTree [STBare "λ", params, body] -> do
     b <- treeToExpr body
     let go xs = case xs of
           [] -> Left "lambda needs at least one arg"
-          [(STBare x)] -> return $ Lam (Name x) b
+          [(STBare x)] -> return $ Lam (Name x) (rmType b)
           ((STBare x):xs') -> Lam (Name x) <$> go xs'
           _ -> Left "lambda args should be bare"
     case params of
-      STTree xs -> go xs
-      STBare x -> go [STBare x]
+      STTree xs -> UnTyped <$> go xs
+      STBare x -> UnTyped <$> go [STBare x]
       _ -> Left "bad lambda arg"
-  STTree (STBare "lambda":_) ->
+  STTree (STBare "λ":_) ->
     Left "bad lambda expr"
 
   STTree [STBare "let", STTree bindings, body] -> do
     bs <- parseBindings bindings
     b <- treeToExpr body
-    return $ Let bs b
+    unTyped $ Let bs (rmType b)
    where parseBindings [] = return []
          parseBindings (STTree [STBare n, v] : bs) = do
            v' <- treeToExpr v
-           let b1 = (Name n, v')
+           let b1 = (Name n, rmType v')
            (b1 :) <$> parseBindings bs
          parseBindings x = Left $ "could not parse bindings:" <> tshow x
   STTree (STBare "let":_) ->
@@ -116,11 +127,11 @@ treeToExpr = \case
   STTree [STBare "letrec", STTree bindings, body] -> do
     bs <- parseBindings bindings
     b <- treeToExpr body
-    return $ LetRec bs b
+    unTyped $ LetRec bs (rmType b)
    where parseBindings [] = return []
          parseBindings (STTree [STBare n, v] : bs) = do
            v' <- treeToExpr v
-           let b1 = (Name n, v')
+           let b1 = (Name n, rmType v')
            (b1 :) <$> parseBindings bs
          parseBindings x = Left $ "could not parse bindings:" <> tshow x
   STTree (STBare "letrec":_) ->
@@ -128,7 +139,7 @@ treeToExpr = \case
 
   STTree [STBare "def", STBare name, body] -> do
     b <- treeToExpr body
-    return $ Def (Name name) b
+    unTyped $ Def (Name name) (rmType b)
   STTree (STBare "def" : _) ->
     Left "bad Def"
 
@@ -136,8 +147,11 @@ treeToExpr = \case
   STTree [a1, a2] -> do
     a1' <- treeToExpr a1
     a2' <- treeToExpr a2
-    return $ Call a1' a2'
+    unTyped $ Call (rmType a1') (rmType a2')
   STTree (a1:a2:as) -> treeToExpr $ STTree $ STTree [a1, a2] : as
+ where
+  unTyped = return . UnTyped
+  typed t e = return $ Typed t e
 
-treesToExprs :: [SyntaxTree] -> Either Text [Expr]
+treesToExprs :: [SyntaxTree] -> Either Text [Typed Expr]
 treesToExprs = mapM treeToExpr
