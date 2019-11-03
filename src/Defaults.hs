@@ -50,7 +50,7 @@ hif0 (Float v) = rbb "if0.1" $ \then_ -> rbb "if0.2" $ \else_ ->
   if v == 0 then Right then_ else Right else_
 hif0 _ = Left "first arg to if0 must be a Float"
 
-defaults :: Map Name (Val, PType)
+defaults :: Map Name (Val, PType Tc)
 defaults = Map.fromList
   [ "+" ~~ bb "+" hplus ~~ Forall [] (tFloat +-> tFloat +-> tFloat)
   , "-" ~~ bb "-" hminus ~~ Forall [] (tFloat +-> tFloat +-> tFloat)

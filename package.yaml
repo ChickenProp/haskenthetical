@@ -20,13 +20,18 @@ extra-source-files:
 description:         Please see the README on GitHub at <https://github.com/githubuser/haskenthetical#readme>
 
 default-extensions:
+- DataKinds
+- FlexibleContexts
 - FlexibleInstances
 - GeneralizedNewtypeDeriving
+- KindSignatures
 - LambdaCase
 - OverloadedStrings
 - QuasiQuotes
 - RecordWildCards
+- StandaloneDeriving
 - TypeApplications
+- TypeFamilies
 - TypeSynonymInstances
 
 dependencies:

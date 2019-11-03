@@ -9,6 +9,8 @@ module TypeCheck
   , tFloat
   , tString
   , runTypeCheck
+
+  , Pass(..), Ps, Tc
   ) where
 
 import Prelude.Extra
@@ -22,6 +24,7 @@ import qualified Data.List.NonEmpty as NE
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import qualified Data.Text as Text
+import Data.Void (Void)
 
 import Syntax
 
@@ -29,50 +32,69 @@ data Kind = HType | Kind :*-> Kind
   deriving (Eq, Show)
 
 newtype TVar = TV Text deriving (Eq, Show, Ord)
-data TCon = TC Text Kind deriving (Eq, Show)
 
-data MType
+data Pass = Parsed | Typechecked
+type Ps = 'Parsed
+type Tc = 'Typechecked
+
+data TCon (p :: Pass) = TC (XTC p) Text
+deriving instance Eq (TCon Ps)
+deriving instance Eq (TCon Tc)
+deriving instance Show (TCon Ps)
+deriving instance Show (TCon Tc)
+
+type family XTC (p :: Pass)
+type instance XTC 'Parsed = Void
+type instance XTC 'Typechecked = Kind
+
+data MType (p :: Pass)
   = TVar TVar
-  | TCon TCon
-  | TApp MType MType
-  deriving (Eq, Show)
+  | TCon (TCon p)
+  | TApp (MType p) (MType p)
+deriving instance Eq (MType Ps)
+deriving instance Eq (MType Tc)
+deriving instance Show (MType Ps)
+deriving instance Show (MType Tc)
 
-(+->) :: MType -> MType -> MType
-a +-> b = TApp (TApp (TCon $ TC "->" $ HType :*-> HType) a) b
+(+->) :: MType Tc -> MType Tc -> MType Tc
+a +-> b = TCon (TC (HType :*-> HType) "->") `TApp` a `TApp` b
 
-(+:*) :: MType -> MType -> MType
-a +:* b = TApp (TApp (TCon $ TC "," $ HType :*-> HType) a) b
+(+:*) :: MType Tc -> MType Tc -> MType Tc
+a +:* b = TCon (TC (HType :*-> HType) ",") `TApp` a `TApp` b
 
-(+:+) :: MType -> MType -> MType
-a +:+ b = TApp (TApp (TCon $ TC "+" $ HType :*-> HType) a) b
+(+:+) :: MType Tc -> MType Tc -> MType Tc
+a +:+ b = TCon (TC (HType :*-> HType) "+") `TApp` a `TApp` b
 
 infixr 4 +-> -- 4 chosen fairly arbitrarily
 infixr 4 +:*
 infixr 4 +:+
 
-tFloat, tString :: MType
-tFloat = TCon (TC "Float" HType)
-tString = TCon (TC "String" HType)
+tFloat, tString :: MType Tc
+tFloat = TCon (TC HType "Float")
+tString = TCon (TC HType "String")
 
-data PType = Forall [TVar] MType
-  deriving (Eq, Show)
+data PType (p :: Pass) = Forall [TVar] (MType p)
+deriving instance Eq (PType Ps)
+deriving instance Eq (PType Tc)
+deriving instance Show (PType Ps)
+deriving instance Show (PType Tc)
 
-newtype TypeEnv = TypeEnv { _unTypeEnv :: Map Name PType } deriving (Show)
-type Constraint = (MType, MType)
+newtype TypeEnv = TypeEnv { _unTypeEnv :: Map Name (PType Tc) } deriving (Show)
+type Constraint = (MType Tc, MType Tc)
 
-tInsert :: Name -> PType -> TypeEnv -> TypeEnv
+tInsert :: Name -> PType Tc -> TypeEnv -> TypeEnv
 tInsert n t (TypeEnv m) = TypeEnv $ Map.insert n t m
 
-tInsertMany :: [(Name, PType)] -> TypeEnv -> TypeEnv
+tInsertMany :: [(Name, PType Tc)] -> TypeEnv -> TypeEnv
 tInsertMany bs (TypeEnv m) = TypeEnv $ Map.union (Map.fromList bs) m
 
-tLookup :: Name -> TypeEnv -> Maybe PType
+tLookup :: Name -> TypeEnv -> Maybe (PType Tc)
 tLookup n (TypeEnv m) = Map.lookup n m
 
-extending :: Name -> PType -> Infer a -> Infer a
+extending :: Name -> PType Tc -> Infer a -> Infer a
 extending n t m = local (tInsert n t) m
 
-newtype Subst = Subst { _subst :: Map TVar MType }
+newtype Subst = Subst { _subst :: Map TVar (MType Tc) }
   deriving (Eq, Show)
 
 nullSubst :: Subst
@@ -82,7 +104,7 @@ class Substitutable a where
   apply :: Subst -> a -> a
   ftv :: a -> Set.Set TVar
 
-instance Substitutable MType where
+instance Substitutable (MType Tc) where
   apply _ (TCon a) = TCon a
   apply (Subst s) t@(TVar a) = Map.findWithDefault t a s
   apply s (t1 `TApp` t2) = apply s t1 `TApp` apply s t2
@@ -91,7 +113,7 @@ instance Substitutable MType where
   ftv (TVar a) = Set.singleton a
   ftv (t1 `TApp` t2) = ftv t1 `Set.union` ftv t2
 
-instance Substitutable PType where
+instance Substitutable (PType Tc) where
   apply (Subst s) (Forall as t) =
     Forall as $ apply (Subst $ foldr Map.delete s as) t
   ftv (Forall as t) = ftv t `Set.difference` Set.fromList as
@@ -121,7 +143,7 @@ instance Substitutable TypeEnv where
 -- generalize `e` to `Forall [e] e`, and then that won't unify with `Float`. By
 -- running the solver, we instead generalize `Float` to `Forall [] Float`.
 
-runTypeCheck :: TypeEnv -> Typed Expr -> Either Text PType
+runTypeCheck :: TypeEnv -> Typed Expr -> Either Text (PType Tc)
 runTypeCheck env expr = do
   (ty, _, constraints) <- runRWST (inferTyped expr) env (InferState letters)
   subst <- solver1 constraints
@@ -133,39 +155,39 @@ runTypeCheck env expr = do
 data InferState = InferState { _vars :: [TVar] }
 type Infer a = RWST TypeEnv [Constraint] InferState (Either Text) a
 
-genSym :: Infer MType
+genSym :: Infer (MType Tc)
 genSym = do
   InferState vars <- get
   put $ InferState (tail vars)
   return $ TVar (head vars)
 
-instantiate :: PType -> Infer MType
+instantiate :: PType Tc -> Infer (MType Tc)
 instantiate (Forall as t) = do
   as' <- mapM (const genSym) as
   let subst = Subst $ Map.fromList (zip as as')
   return $ apply subst t
 
-generalize :: TypeEnv -> MType -> PType
+generalize :: TypeEnv -> MType Tc -> PType Tc
 generalize env t = Forall as t
   where as = Set.toList $ ftv t `Set.difference` ftv env
 
-lookupEnv :: Name -> Infer MType
+lookupEnv :: Name -> Infer (MType Tc)
 lookupEnv n = do
   env <- ask
   case tLookup n env of
     Nothing -> lift $ Left $ "unbound variable " <> tshow n
     Just t -> instantiate t
 
-unify :: MType -> MType -> Infer ()
+unify :: MType Tc -> MType Tc -> Infer ()
 unify t1 t2 = tell [(t1, t2)]
 
-parseType :: NE.NonEmpty Name -> Infer PType
+parseType :: NE.NonEmpty Name -> Infer (PType Tc)
 parseType = \case
   ("Float" NE.:| []) -> return $ Forall [] tFloat
   ("String" NE.:| []) -> return $ Forall [] tString
   _ -> error "no good type parsing yet"
 
-inferTyped :: Typed Expr -> Infer MType
+inferTyped :: Typed Expr -> Infer (MType Tc)
 inferTyped (UnTyped e) = infer e
 inferTyped (Typed t e) = do
   t' <- instantiate =<< parseType t
@@ -173,7 +195,7 @@ inferTyped (Typed t e) = do
   unify t' e'
   return t'
 
-infer :: Expr -> Infer MType
+infer :: Expr -> Infer (MType Tc)
 infer expr = case expr of
   Val (Float _) -> return tFloat
   Val (String _) -> return tString
@@ -230,12 +252,12 @@ s1@(Subst s1') `compose` (Subst s2') =
   Subst $ fmap (apply s1) s2' `Map.union` s1'
 
 -- | Subst that binds variable a to type t
-bind :: TVar -> MType -> Solve Subst
+bind :: TVar -> MType Tc -> Solve Subst
 bind a t | t == TVar a = return nullSubst
          | a `Set.member` ftv t = Left "infinite type"
          | otherwise = return $ Subst $ Map.singleton a t
 
-unifies :: MType -> MType -> Solve Subst
+unifies :: MType Tc -> MType Tc -> Solve Subst
 unifies t1 t2 | t1 == t2 = return nullSubst
 unifies (TVar v) t = bind v t
 unifies t (TVar v) = bind v t
@@ -249,7 +271,7 @@ unifies t1@(t11 `TApp` t12) t2@(t21 `TApp` t22)
   where isTVar = \case { TVar _ -> True; TCon _ -> False; TApp _ _ -> False }
 unifies a b = Left $ "unification fail: " <> tshow a <> " is not " <> tshow b
 
-unifiesMany :: [MType] -> [MType] -> Solve Subst
+unifiesMany :: [MType Tc] -> [MType Tc] -> Solve Subst
 unifiesMany [] [] = return nullSubst
 unifiesMany (t1 : ts1) (t2 : ts2) = do
   su1 <- unifies t1 t2

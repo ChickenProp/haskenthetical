@@ -11,7 +11,7 @@ import Syntax
 import TypeCheck
 
 
-typeCheck :: String -> Either Text PType
+typeCheck :: String -> Either Text (PType Tc)
 typeCheck program = do
    trees <- parseWholeFile "<str>" program
    exprs <- treesToExprs trees
@@ -29,7 +29,7 @@ runEval program = do
 main :: IO ()
 main = hspec $ do
   describe "Type checking" $ do
-    let hasType :: String -> PType -> Expectation
+    let hasType :: String -> PType Tc -> Expectation
         prog `hasType` t = typeCheck prog `shouldBe` Right t
 
     let tcFails :: String -> Expectation
