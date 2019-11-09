@@ -24,7 +24,6 @@ import Prelude.Extra
 
 import Data.Map.Strict (Map)
 import qualified Data.Text as Text
-import Data.Void (Void)
 import GHC.Exts (IsString)
 
 newtype Name = Name { unName :: Text }
@@ -78,14 +77,16 @@ data Pass = Parsed | Typechecked
 type Ps = 'Parsed
 type Tc = 'Typechecked
 
-data TCon (p :: Pass) = TC (XTC p) Text
+data NoExt = NoExt deriving (Eq, Show)
+
+data TCon (p :: Pass) = TC !(XTC p) Text
 deriving instance Eq (TCon Ps)
 deriving instance Eq (TCon Tc)
 deriving instance Show (TCon Ps)
 deriving instance Show (TCon Tc)
 
 type family XTC (p :: Pass)
-type instance XTC Ps = Void
+type instance XTC Ps = NoExt
 type instance XTC Tc = Kind
 
 data MType (p :: Pass)
@@ -115,8 +116,8 @@ class BuiltinTypes a where
   tString :: MType a
 
 instance BuiltinTypes Ps where
-  tFloat = TCon (TC undefined "Float")
-  tString = TCon (TC undefined "String")
+  tFloat = TCon (TC NoExt "Float")
+  tString = TCon (TC NoExt "String")
 
 instance BuiltinTypes Tc where
   tFloat = TCon (TC HType "Float")
