@@ -95,7 +95,7 @@ treeToExpr = \case
     expr' <- treeToExpr expr
     case expr' of
       Typed _ _ -> Left "can't type something twice" -- any reason why not?
-      UnTyped e -> typed typ' e
+      UnTyped e -> flip Typed e <$> parseType typ'
 
   STTree [STBare "λ", params, body] -> do
     b <- treeToExpr body
@@ -151,7 +151,12 @@ treeToExpr = \case
   STTree (a1:a2:as) -> treeToExpr $ STTree $ STTree [a1, a2] : as
  where
   unTyped = return . UnTyped
-  typed t e = return $ Typed t e
 
 treesToExprs :: [SyntaxTree] -> Either Text [Typed Expr]
 treesToExprs = mapM treeToExpr
+
+parseType :: NE.NonEmpty Name -> Either Text (PType Ps)
+parseType = \case
+  ("Float" NE.:| []) -> return $ Forall [] tFloat
+  ("String" NE.:| []) -> return $ Forall [] tString
+  _ -> error "no good type parsing yet"

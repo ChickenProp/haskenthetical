@@ -1,16 +1,6 @@
 module TypeCheck
   ( TypeEnv(..)
-  , MType(..)
-  , PType(..)
-  , TVar(..)
-  , (+->)
-  , (+:*)
-  , (+:+)
-  , tFloat
-  , tString
   , runTypeCheck
-
-  , Pass(..), Ps, Tc
   ) where
 
 import Prelude.Extra
@@ -20,64 +10,11 @@ import Control.Monad.Except (liftEither)
 import Control.Monad.Trans (lift)
 import Control.Monad.RWS.Strict
   (RWST, runRWST, tell, local, get, put, ask, listen)
-import qualified Data.List.NonEmpty as NE
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import qualified Data.Text as Text
-import Data.Void (Void)
 
 import Syntax
-
-data Kind = HType | Kind :*-> Kind
-  deriving (Eq, Show)
-
-newtype TVar = TV Text deriving (Eq, Show, Ord)
-
-data Pass = Parsed | Typechecked
-type Ps = 'Parsed
-type Tc = 'Typechecked
-
-data TCon (p :: Pass) = TC (XTC p) Text
-deriving instance Eq (TCon Ps)
-deriving instance Eq (TCon Tc)
-deriving instance Show (TCon Ps)
-deriving instance Show (TCon Tc)
-
-type family XTC (p :: Pass)
-type instance XTC 'Parsed = Void
-type instance XTC 'Typechecked = Kind
-
-data MType (p :: Pass)
-  = TVar TVar
-  | TCon (TCon p)
-  | TApp (MType p) (MType p)
-deriving instance Eq (MType Ps)
-deriving instance Eq (MType Tc)
-deriving instance Show (MType Ps)
-deriving instance Show (MType Tc)
-
-(+->) :: MType Tc -> MType Tc -> MType Tc
-a +-> b = TCon (TC (HType :*-> HType) "->") `TApp` a `TApp` b
-
-(+:*) :: MType Tc -> MType Tc -> MType Tc
-a +:* b = TCon (TC (HType :*-> HType) ",") `TApp` a `TApp` b
-
-(+:+) :: MType Tc -> MType Tc -> MType Tc
-a +:+ b = TCon (TC (HType :*-> HType) "+") `TApp` a `TApp` b
-
-infixr 4 +-> -- 4 chosen fairly arbitrarily
-infixr 4 +:*
-infixr 4 +:+
-
-tFloat, tString :: MType Tc
-tFloat = TCon (TC HType "Float")
-tString = TCon (TC HType "String")
-
-data PType (p :: Pass) = Forall [TVar] (MType p)
-deriving instance Eq (PType Ps)
-deriving instance Eq (PType Tc)
-deriving instance Show (PType Ps)
-deriving instance Show (PType Tc)
 
 newtype TypeEnv = TypeEnv { _unTypeEnv :: Map Name (PType Tc) } deriving (Show)
 type Constraint = (MType Tc, MType Tc)
@@ -181,16 +118,18 @@ lookupEnv n = do
 unify :: MType Tc -> MType Tc -> Infer ()
 unify t1 t2 = tell [(t1, t2)]
 
-parseType :: NE.NonEmpty Name -> Infer (PType Tc)
-parseType = \case
-  ("Float" NE.:| []) -> return $ Forall [] tFloat
-  ("String" NE.:| []) -> return $ Forall [] tString
-  _ -> error "no good type parsing yet"
+ps2tc_PType :: PType Ps -> Infer (PType Tc)
+ps2tc_PType = \case
+  Forall [] (TCon (TC _ n)) -> case n of
+    "Float" -> return $ Forall [] tFloat
+    "String" -> return $ Forall [] tString
+    _ -> error $ "Unexpected type " ++ show n
+  _ -> error "Unhandled case in ps2tc_Ptype"
 
 inferTyped :: Typed Expr -> Infer (MType Tc)
 inferTyped (UnTyped e) = infer e
 inferTyped (Typed t e) = do
-  t' <- instantiate =<< parseType t
+  t' <- instantiate =<< ps2tc_PType t
   e' <- infer e
   unify t' e'
   return t'
