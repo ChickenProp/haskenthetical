@@ -1,21 +1,25 @@
 module Prelude.Extra
   ( module Prelude.Extra
-  , Text
+  , module Control.Lens
+  , module Control.Monad
+  , module Control.Monad.Trans
+  , module Data.Either
+  , module Data.Generics.Product
+  , Generic
   , Map
-  , isLeft
-  , forM
-  , liftIO
-  , void
-  , when
+  , Text
   )
 where
 
+import Control.Lens ((^.), (.~), (%~), (&))
 import Control.Monad (forM, void, when)
 import Control.Monad.Trans (liftIO)
 import Data.Either (isLeft)
+import Data.Generics.Product (field, getField, setField)
 import Data.Map (Map)
 import Data.Text (Text)
 import qualified Data.Text as Text
+import GHC.Generics (Generic)
 
 tshow :: Show a => a -> Text
 tshow = Text.pack . show

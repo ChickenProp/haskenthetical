@@ -1,5 +1,6 @@
 module TypeCheck
-  ( TypeEnv(..)
+  ( InferEnv(..)
+  , TypeEnv(..)
   , runTypeCheck
   ) where
 
@@ -9,7 +10,7 @@ import Control.Monad (replicateM)
 import Control.Monad.Except (liftEither)
 import Control.Monad.Trans (lift)
 import Control.Monad.RWS.Strict
-  (RWST, runRWST, tell, local, get, put, ask, listen)
+  (RWST, runRWST, tell, local, get, put, asks, listen)
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import qualified Data.Text as Text
@@ -29,7 +30,7 @@ tLookup :: Name -> TypeEnv -> Maybe (PType Tc)
 tLookup n (TypeEnv m) = Map.lookup n m
 
 extending :: Name -> PType Tc -> Infer a -> Infer a
-extending n t m = local (tInsert n t) m
+extending n t m = local (field @"ieVars" %~ tInsert n t) m
 
 newtype Subst = Subst { _subst :: Map TVar (MType Tc) }
   deriving (Eq, Show)
@@ -80,17 +81,19 @@ instance Substitutable TypeEnv where
 -- generalize `e` to `Forall [e] e`, and then that won't unify with `Float`. By
 -- running the solver, we instead generalize `Float` to `Forall [] Float`.
 
-runTypeCheck :: TypeEnv -> Typed Expr -> Either Text (PType Tc)
+runTypeCheck :: InferEnv -> Typed Expr -> Either Text (PType Tc)
 runTypeCheck env expr = do
   (ty, _, constraints) <- runRWST (inferTyped expr) env (InferState letters)
   subst <- solver1 constraints
-  return $ generalize env $ apply subst ty
+  return $ generalize (ieVars env) $ apply subst ty
   where letters = map (TV . Text.pack) $ [1..] >>= flip replicateM ['a'..'z']
 
 ---
 
+data InferEnv = InferEnv { ieVars :: TypeEnv, ieTypes :: TypeEnv }
+  deriving (Generic)
 data InferState = InferState { _vars :: [TVar] }
-type Infer a = RWST TypeEnv [Constraint] InferState (Either Text) a
+type Infer a = RWST InferEnv [Constraint] InferState (Either Text) a
 
 genSym :: Infer (MType Tc)
 genSym = do
@@ -108,9 +111,9 @@ generalize :: TypeEnv -> MType Tc -> PType Tc
 generalize env t = Forall as t
   where as = Set.toList $ ftv t `Set.difference` ftv env
 
-lookupEnv :: Name -> Infer (MType Tc)
-lookupEnv n = do
-  env <- ask
+lookupVar :: Name -> Infer (MType Tc)
+lookupVar n = do
+  env <- asks ieVars
   case tLookup n env of
     Nothing -> lift $ Left $ "unbound variable " <> tshow n
     Just t -> instantiate t
@@ -118,18 +121,18 @@ lookupEnv n = do
 unify :: MType Tc -> MType Tc -> Infer ()
 unify t1 t2 = tell [(t1, t2)]
 
-ps2tc_PType :: PType Ps -> Infer (PType Tc)
-ps2tc_PType = \case
+lookupType :: PType Ps -> Infer (PType Tc)
+lookupType = \case
   Forall [] (TCon (TC _ n)) -> case n of
     "Float" -> return $ Forall [] tFloat
     "String" -> return $ Forall [] tString
     _ -> error $ "Unexpected type " ++ show n
-  _ -> error "Unhandled case in ps2tc_Ptype"
+  _ -> error "Unhandled case in lookupType"
 
 inferTyped :: Typed Expr -> Infer (MType Tc)
 inferTyped (UnTyped e) = infer e
 inferTyped (Typed t e) = do
-  t' <- instantiate =<< ps2tc_PType t
+  t' <- instantiate =<< lookupType t
   e' <- infer e
   unify t' e'
   return t'
@@ -140,7 +143,7 @@ infer expr = case expr of
   Val (String _) -> return tString
   Val v -> error $ "unexpected Val during typechecking: " ++ show v
 
-  Var n -> lookupEnv n
+  Var n -> lookupVar n
 
   Lam x e -> do
     tv <- genSym
@@ -149,7 +152,7 @@ infer expr = case expr of
 
   Let [] e -> infer e
   Let ((n, e1):bs) e -> do
-    env <- ask
+    env <- asks ieVars
     (t1, constraints) <- listen $ infer e1
     subst <- liftEither $ solver1 constraints
     let gen = generalize env (apply subst t1)
@@ -157,19 +160,19 @@ infer expr = case expr of
     return t2
 
   LetRec bindings e -> do
-    env <- ask
+    env <- asks ieVars
     tvs <- forM bindings $ \_ -> genSym
     let tBindings = flip map (zip tvs bindings) $ \(tv, (n, _)) ->
           (n, Forall [] tv)
     (t1s, constraints) <- listen $ forM (zip tvs bindings)
       $ \(tv, (_, e1)) -> do
-        t1 <- local (tInsertMany tBindings) (infer e1)
+        t1 <- local (field @"ieVars" %~ tInsertMany tBindings) (infer e1)
         unify tv t1
         return t1
     subst <- liftEither $ solver1 constraints
     let gens = flip map (zip bindings t1s) $ \((n, _), t1) ->
           (n, generalize env (apply subst t1))
-    seq gens $ local (tInsertMany gens) $ infer e
+    seq gens $ local (field @"ieVars" %~ tInsertMany gens) $ infer e
 
   Call fun a -> do
     t1 <- infer fun

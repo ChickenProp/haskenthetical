@@ -1,4 +1,4 @@
-module Defaults (defaultTypes, defaultSymbols) where
+module Defaults (defaultEnv, defaultSymbols) where
 
 import Prelude.Extra
 import qualified Data.Map as Map
@@ -79,5 +79,8 @@ defaults = Map.fromList
 defaultSymbols :: Env
 defaultSymbols = Env $ fst <$> defaults
 
-defaultTypes :: TypeEnv
-defaultTypes = TypeEnv $ snd <$> defaults
+defaultVarEnv :: TypeEnv
+defaultVarEnv = TypeEnv $ snd <$> defaults
+
+defaultEnv :: InferEnv
+defaultEnv = InferEnv { ieVars = defaultVarEnv, ieTypes = TypeEnv Map.empty }

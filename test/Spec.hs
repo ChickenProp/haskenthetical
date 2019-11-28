@@ -16,14 +16,14 @@ typeCheck program = do
    trees <- parseWholeFile "<str>" program
    exprs <- treesToExprs trees
    expr1 <- def2let exprs
-   runTypeCheck defaultTypes expr1
+   runTypeCheck defaultEnv expr1
 
 runEval :: String -> Either Text Val
 runEval program = do
    trees <- parseWholeFile "<str>" program
    exprs <- treesToExprs trees
    expr1 <- def2let exprs
-   void $ runTypeCheck defaultTypes expr1
+   void $ runTypeCheck defaultEnv expr1
    eval1 defaultSymbols (rmType expr1)
 
 main :: IO ()
