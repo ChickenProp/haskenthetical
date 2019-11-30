@@ -1,5 +1,5 @@
 module Syntax
-  ( Pass(..), Ps, Tc
+  ( Pass(..), Ps, Tc, NoExt(..)
   , Name(..)
   , Env(..)
   , Expr(..)
@@ -79,7 +79,7 @@ type Tc = 'Typechecked
 
 data NoExt = NoExt deriving (Eq, Show)
 
-data TCon (p :: Pass) = TC !(XTC p) Text
+data TCon (p :: Pass) = TC !(XTC p) Name
 deriving instance Eq (TCon Ps)
 deriving instance Eq (TCon Tc)
 deriving instance Show (TCon Ps)

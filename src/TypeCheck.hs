@@ -123,10 +123,11 @@ unify t1 t2 = tell [(t1, t2)]
 
 lookupType :: PType Ps -> Infer (PType Tc)
 lookupType = \case
-  Forall [] (TCon (TC _ n)) -> case n of
-    "Float" -> return $ Forall [] tFloat
-    "String" -> return $ Forall [] tString
-    _ -> error $ "Unexpected type " ++ show n
+  Forall [] (TCon (TC NoExt n)) -> do
+   env <- asks ieTypes
+   case tLookup n env of
+     Nothing -> lift $ Left $ "unknown type " <> tshow n
+     Just t -> return t
   _ -> error "Unhandled case in lookupType"
 
 inferTyped :: Typed Expr -> Infer (MType Tc)

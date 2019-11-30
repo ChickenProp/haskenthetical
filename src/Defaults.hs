@@ -82,5 +82,11 @@ defaultSymbols = Env $ fst <$> defaults
 defaultVarEnv :: TypeEnv
 defaultVarEnv = TypeEnv $ snd <$> defaults
 
+defaultTypeEnv :: TypeEnv
+defaultTypeEnv = TypeEnv $ Map.fromList
+  [ ("Float", Forall [] tFloat)
+  , ("String", Forall [] tString)
+  ]
+
 defaultEnv :: InferEnv
-defaultEnv = InferEnv { ieVars = defaultVarEnv, ieTypes = TypeEnv Map.empty }
+defaultEnv = InferEnv { ieVars = defaultVarEnv, ieTypes = defaultTypeEnv }
