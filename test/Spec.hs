@@ -57,6 +57,15 @@ main = hspec $ do
       "(: Float 3)" `hasType` Forall [] tFloat
       [q|(: String "foo")|] `hasType` Forall [] tString
 
+    it "accepts typed expressions" $ do
+      "(: (-> Float (-> Float Float)) +)"
+        `hasType` Forall [] (tFloat +-> tFloat +-> tFloat)
+      "(: (-> Float Float) (+ 1))" `hasType` Forall [] (tFloat +-> tFloat)
+      "(: (-> Float (+ Float Float)) (λ x (if0 x (Left 0) (Right 0))))"
+        `hasType` Forall [] (tFloat +-> (tFloat +:+ tFloat))
+      [q|(: (, Float String) (, 2 "bar"))|]
+        `hasType` Forall [] (tFloat +:* tString)
+
     it "rejects incorrectly typed constants" $ do
       tcFails "(: String 3)"
       tcFails [q|(: Float "foo")|]

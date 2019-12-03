@@ -86,6 +86,9 @@ defaultTypeEnv :: TypeEnv
 defaultTypeEnv = TypeEnv $ Map.fromList
   [ ("Float", Forall [] tFloat)
   , ("String", Forall [] tString)
+  , ("->", Forall [] $ TCon $ TC (HType :*-> HType) "->")
+  , ("+", Forall [] $ TCon $ TC (HType :*-> HType) "+")
+  , (",", Forall [] $ TCon $ TC (HType :*-> HType) ",")
   ]
 
 defaultEnv :: InferEnv

@@ -11,6 +11,7 @@ module Syntax
   , PType(..)
   , TCon(..)
   , TVar(..)
+  , Kind(..)
   , BuiltinTypes(..)
   , (+->)
   , (+:*)

@@ -128,7 +128,17 @@ lookupType = \case
    case tLookup n env of
      Nothing -> lift $ Left $ "unknown type " <> tshow n
      Just t -> return t
-  _ -> error "Unhandled case in lookupType"
+  Forall [] (TVar _) ->
+    lift $ Left "I don't know how to handle vars in type annotations yet"
+  Forall [] (a `TApp` b) -> do
+    tl <- lookupType $ Forall [] a
+    tr <- lookupType $ Forall [] b
+    case (tl, tr) of
+      (Forall [] tl', Forall [] tr') -> do
+        return $ Forall [] $ tl' `TApp` tr'
+      _ -> lift $ Left "Somehow got a Forall from `lookupType`?"
+  Forall _ _ ->
+    lift $ Left "I don't know how to handle foralls in type annotations yet"
 
 inferTyped :: Typed Expr -> Infer (MType Tc)
 inferTyped (UnTyped e) = infer e

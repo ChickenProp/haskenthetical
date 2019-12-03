@@ -4,7 +4,7 @@ import Prelude.Extra
 
 import Data.Bifunctor (first)
 import qualified Data.Char as Char
-import qualified Data.List.NonEmpty as NE
+import Data.List (foldl1')
 import qualified Data.Text as Text
 import Data.Void (Void)
 
@@ -89,13 +89,10 @@ treeToExpr = \case
   STTree [] -> Left "() is not currently a thing"
 
   STTree [STBare ":", typ, expr] -> do
-    typ' <- case typ of
-      STBare b -> return $ Name b NE.:| []
-      _ -> Left "bad type"
     expr' <- treeToExpr expr
     case expr' of
       Typed _ _ -> Left "can't type something twice" -- any reason why not?
-      UnTyped e -> flip Typed e <$> parseType typ'
+      UnTyped e -> flip Typed e <$> parseType typ
 
   STTree [STBare "λ", params, body] -> do
     b <- treeToExpr body
@@ -155,8 +152,14 @@ treeToExpr = \case
 treesToExprs :: [SyntaxTree] -> Either Text [Typed Expr]
 treesToExprs = mapM treeToExpr
 
-parseType :: NE.NonEmpty Name -> Either Text (PType Ps)
-parseType = \case
-  ("Float" NE.:| []) -> return $ Forall [] tFloat
-  ("String" NE.:| []) -> return $ Forall [] tString
-  _ -> error "no good type parsing yet"
+parseType :: SyntaxTree -> Either Text (PType Ps)
+parseType tree = Forall [] <$> go tree
+ where
+  go = \case
+    STBare n -> return $ TCon $ TC NoExt $ Name n
+    STFloat _ -> Left "Cannot put a Float in a type"
+    STString _ -> Left "Cannot put a String in a type"
+    STTree [] -> Left "Empty type"
+    STTree xs -> do
+      ts <- mapM go xs
+      return $ foldl1' TApp ts
