@@ -11,7 +11,7 @@ module Syntax
   , PType(..)
   , TCon(..)
   , TVar(..)
-  , Kind(..)
+  , Kind(..), HasKind(..)
   , BuiltinTypes(..)
   , (+->)
   , (+:*)
@@ -26,6 +26,12 @@ import Prelude.Extra
 import Data.Map.Strict (Map)
 import qualified Data.Text as Text
 import GHC.Exts (IsString)
+
+data Pass = Parsed | Typechecked
+type Ps = 'Parsed
+type Tc = 'Typechecked
+
+data NoExt = NoExt deriving (Eq, Show, Ord)
 
 newtype Name = Name { unName :: Text }
   deriving (Eq, Ord, Show, IsString)
@@ -70,15 +76,26 @@ data Expr
   deriving (Eq, Show)
 
 data Kind = HType | Kind :*-> Kind
-  deriving (Eq, Show)
+  deriving (Eq, Show, Ord)
 
-newtype TVar = TV Text deriving (Eq, Show, Ord)
+infixr 4 :*->
 
-data Pass = Parsed | Typechecked
-type Ps = 'Parsed
-type Tc = 'Typechecked
+class HasKind t where
+  kind :: t -> Kind
 
-data NoExt = NoExt deriving (Eq, Show)
+data TVar (p :: Pass) = TV !(XTV p) Text
+deriving instance Eq (TVar Ps)
+deriving instance Eq (TVar Tc)
+deriving instance Show (TVar Ps)
+deriving instance Show (TVar Tc)
+deriving instance Ord (TVar Ps)
+deriving instance Ord (TVar Tc)
+
+type family XTV (p :: Pass)
+type instance XTV Ps = NoExt
+type instance XTV Tc = Kind
+
+instance HasKind (TVar Tc) where kind (TV k _) = k
 
 data TCon (p :: Pass) = TC !(XTC p) Name
 deriving instance Eq (TCon Ps)
@@ -90,8 +107,10 @@ type family XTC (p :: Pass)
 type instance XTC Ps = NoExt
 type instance XTC Tc = Kind
 
+instance HasKind (TCon Tc) where kind (TC k _) = k
+
 data MType (p :: Pass)
-  = TVar TVar
+  = TVar (TVar p)
   | TCon (TCon p)
   | TApp (MType p) (MType p)
 deriving instance Eq (MType Ps)
@@ -99,14 +118,22 @@ deriving instance Eq (MType Tc)
 deriving instance Show (MType Ps)
 deriving instance Show (MType Tc)
 
+instance HasKind (MType Tc) where
+  kind t = case t of
+    TVar v -> kind v
+    TCon c -> kind c
+    t1 `TApp` t2 -> case (kind t1, kind t2) of
+      (k11 :*-> k12, k2) | k11 == k2 -> k12
+      _ -> error $ "Type with malformed kind: " ++ show t
+
 (+->) :: MType Tc -> MType Tc -> MType Tc
-a +-> b = TCon (TC (HType :*-> HType) "->") `TApp` a `TApp` b
+a +-> b = TCon (TC (HType :*-> HType :*-> HType) "->") `TApp` a `TApp` b
 
 (+:*) :: MType Tc -> MType Tc -> MType Tc
-a +:* b = TCon (TC (HType :*-> HType) ",") `TApp` a `TApp` b
+a +:* b = TCon (TC (HType :*-> HType :*-> HType) ",") `TApp` a `TApp` b
 
 (+:+) :: MType Tc -> MType Tc -> MType Tc
-a +:+ b = TCon (TC (HType :*-> HType) "+") `TApp` a `TApp` b
+a +:+ b = TCon (TC (HType :*-> HType :*-> HType) "+") `TApp` a `TApp` b
 
 infixr 4 +-> -- 4 chosen fairly arbitrarily
 infixr 4 +:*
@@ -124,7 +151,7 @@ instance BuiltinTypes Tc where
   tFloat = TCon (TC HType "Float")
   tString = TCon (TC HType "String")
 
-data PType (p :: Pass) = Forall [TVar] (MType p)
+data PType (p :: Pass) = Forall [TVar p] (MType p)
 deriving instance Eq (PType Ps)
 deriving instance Eq (PType Tc)
 deriving instance Show (PType Ps)

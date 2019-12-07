@@ -32,7 +32,7 @@ tLookup n (TypeEnv m) = Map.lookup n m
 extending :: Name -> PType Tc -> Infer a -> Infer a
 extending n t m = local (field @"ieVars" %~ tInsert n t) m
 
-newtype Subst = Subst { _subst :: Map TVar (MType Tc) }
+newtype Subst = Subst { _subst :: Map (TVar Tc) (MType Tc) }
   deriving (Eq, Show)
 
 nullSubst :: Subst
@@ -40,7 +40,7 @@ nullSubst = Subst Map.empty
 
 class Substitutable a where
   apply :: Subst -> a -> a
-  ftv :: a -> Set.Set TVar
+  ftv :: a -> Set.Set (TVar Tc)
 
 instance Substitutable (MType Tc) where
   apply _ (TCon a) = TCon a
@@ -86,13 +86,15 @@ runTypeCheck env expr = do
   (ty, _, constraints) <- runRWST (inferTyped expr) env (InferState letters)
   subst <- solver1 constraints
   return $ generalize (ieVars env) $ apply subst ty
-  where letters = map (TV . Text.pack) $ [1..] >>= flip replicateM ['a'..'z']
+ where
+  letters :: [TVar Tc]
+  letters = map (TV HType . Text.pack) $ [1..] >>= flip replicateM ['a'..'z']
 
 ---
 
 data InferEnv = InferEnv { ieVars :: TypeEnv, ieTypes :: TypeEnv }
   deriving (Generic)
-data InferState = InferState { _vars :: [TVar] }
+data InferState = InferState { _vars :: [TVar Tc] }
 type Infer a = RWST InferEnv [Constraint] InferState (Either Text) a
 
 genSym :: Infer (MType Tc)
@@ -205,13 +207,16 @@ s1@(Subst s1') `compose` (Subst s2') =
   Subst $ fmap (apply s1) s2' `Map.union` s1'
 
 -- | Subst that binds variable a to type t
-bind :: TVar -> MType Tc -> Solve Subst
+bind :: TVar Tc -> MType Tc -> Solve Subst
 bind a t | t == TVar a = return nullSubst
          | a `Set.member` ftv t = Left "infinite type"
          | otherwise = return $ Subst $ Map.singleton a t
 
 unifies :: MType Tc -> MType Tc -> Solve Subst
-unifies t1 t2 | t1 == t2 = return nullSubst
+unifies t1 t2
+  | t1 == t2 = return nullSubst
+  | kind t1 /= kind t2
+    = Left $ "Unifying types with different kinds: " <> tshow (t1, t2)
 unifies (TVar v) t = bind v t
 unifies t (TVar v) = bind v t
 unifies t1@(t11 `TApp` t12) t2@(t21 `TApp` t22)
@@ -219,7 +224,7 @@ unifies t1@(t11 `TApp` t12) t2@(t21 `TApp` t22)
   -- variable. I'm not entirely sure why, and may just remove this restriction
   -- in future.
   | isTVar t11 || isTVar t21
-  = Left $ "Root must be fixed constructor. Got: " <> tshow (t1, t2)
+    = Left $ "Root must be fixed constructor. Got: " <> tshow (t1, t2)
   | otherwise = unifiesMany [t11, t12] [t21, t22]
   where isTVar = \case { TVar _ -> True; TCon _ -> False; TApp _ _ -> False }
 unifies a b = Left $ "unification fail: " <> tshow a <> " is not " <> tshow b

@@ -1,6 +1,7 @@
 
 import Prelude.Extra
 
+import qualified Data.Text as Text
 import Test.Hspec
 import Text.InterpolatedString.Perl6 (q)
 
@@ -35,12 +36,23 @@ main = hspec $ do
     let tcFails :: String -> Expectation
         tcFails prog = typeCheck prog `shouldSatisfy` isLeft
 
+        tcFailsWith :: String -> String -> Expectation
+        tcFailsWith prog err = case typeCheck prog of
+          Left x -> Text.unpack x `shouldStartWith` err
+          Right _ -> expectationFailure "Expected Left"
+
+    let tvh :: Text -> TVar Tc
+        tvh = TV HType
+
+        ttvh :: Text -> MType Tc
+        ttvh = TVar . tvh
+
     it "accepts constants" $ do
       "3" `hasType` Forall [] tFloat
       [q|"foo"|] `hasType` Forall [] tString
 
     it "accepts lambdas" $ do
-      "(λ x x)" `hasType` Forall [TV "a"] (TVar (TV "a") +-> TVar (TV "a"))
+      "(λ x x)" `hasType` Forall [tvh "a"] (ttvh "a" +-> ttvh "a")
 
     it "applies functions" $ do
       "(+ 1)" `hasType` Forall [] (tFloat +-> tFloat)
@@ -67,8 +79,9 @@ main = hspec $ do
         `hasType` Forall [] (tFloat +:* tString)
 
     it "rejects incorrectly typed constants" $ do
-      tcFails "(: String 3)"
-      tcFails [q|(: Float "foo")|]
+      "(: String 3)" `tcFailsWith` "unification fail"
+      [q|(: Float "foo")|] `tcFailsWith` "unification fail"
+      "(: (, Float) 3)" `tcFailsWith` "Unifying types"
 
   describe "Evaluation" $ do
     let returns :: String -> Val -> Expectation

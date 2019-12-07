@@ -65,11 +65,11 @@ defaults = Map.fromList
       ~~ Forall [a', b', c'] ((a +-> c) +-> (b +-> c) +-> (a +:+ b) +-> c)
   , "if0" ~~ bb "if0" hif0  ~~ Forall [a'] (tFloat +-> a +-> a +-> a)
   ]
-  where a' = TV "a"
+  where a' = TV HType "a"
         a = TVar a'
-        b' = TV "b"
+        b' = TV HType "b"
         b = TVar b'
-        c' = TV "c"
+        c' = TV HType "c"
         c = TVar c'
 
         bb n f = Builtin (Builtin' n f)
@@ -86,9 +86,9 @@ defaultTypeEnv :: TypeEnv
 defaultTypeEnv = TypeEnv $ Map.fromList
   [ ("Float", Forall [] tFloat)
   , ("String", Forall [] tString)
-  , ("->", Forall [] $ TCon $ TC (HType :*-> HType) "->")
-  , ("+", Forall [] $ TCon $ TC (HType :*-> HType) "+")
-  , (",", Forall [] $ TCon $ TC (HType :*-> HType) ",")
+  , ("->", Forall [] $ TCon $ TC (HType :*-> HType :*-> HType) "->")
+  , ("+", Forall [] $ TCon $ TC (HType :*-> HType :*-> HType) "+")
+  , (",", Forall [] $ TCon $ TC (HType :*-> HType :*-> HType) ",")
   ]
 
 defaultEnv :: InferEnv
