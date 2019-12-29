@@ -5,6 +5,7 @@ module Prelude.Extra
   , module Control.Monad.Trans
   , module Data.Either
   , module Data.Generics.Product
+  , module Data.Maybe
   , Generic
   , Map
   , Text
@@ -12,11 +13,12 @@ module Prelude.Extra
 where
 
 import Control.Lens ((^.), (.~), (%~), (&))
-import Control.Monad (forM, void, when)
+import Control.Monad (foldM, forM, void, when)
 import Control.Monad.Trans (liftIO)
 import Data.Either (isLeft)
 import Data.Generics.Product (field, getField, setField)
 import Data.Map (Map)
+import Data.Maybe (mapMaybe)
 import Data.Text (Text)
 import qualified Data.Text as Text
 import GHC.Generics (Generic)

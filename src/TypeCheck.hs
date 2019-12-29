@@ -1,7 +1,5 @@
 module TypeCheck
-  ( InferEnv(..)
-  , TypeEnv(..)
-  , runTypeCheck
+  ( runTypeCheck
   ) where
 
 import Prelude.Extra
@@ -15,9 +13,9 @@ import qualified Data.Map as Map
 import qualified Data.Set as Set
 import qualified Data.Text as Text
 
+import Env
 import Syntax
 
-newtype TypeEnv = TypeEnv { _unTypeEnv :: Map Name (PType Tc) } deriving (Show)
 type Constraint = (MType Tc, MType Tc)
 
 tInsert :: Name -> PType Tc -> TypeEnv -> TypeEnv
@@ -92,8 +90,6 @@ runTypeCheck env expr = do
 
 ---
 
-data InferEnv = InferEnv { ieVars :: TypeEnv, ieTypes :: TypeEnv }
-  deriving (Generic)
 data InferState = InferState { _vars :: [TVar Tc] }
 type Infer a = RWST InferEnv [Constraint] InferState (Either Text) a
 
@@ -195,6 +191,7 @@ infer expr = case expr of
     return tv
 
   Def _ _ -> error "shouldn't have a Def here"
+  TypeDecl _ -> error "shouldn't have a TypeDecl here"
 
 ---
 

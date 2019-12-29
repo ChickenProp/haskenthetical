@@ -16,16 +16,18 @@ isStatement = \case
   Lam _ _ -> False
   Call _ _ -> False
   Def _ _ -> True
+  TypeDecl _ -> True
 
 def2let :: [Typed Expr] -> Either Text (Typed Expr)
 def2let exprs = go [] $ sortOn (not . isStatement . snd) $ map extractType exprs
  where
   go pairs = \case
-   [] -> Left "need at least one expr"
-   [(_, Def _ _)] -> Left "need a non-Def"
+   [] -> Left "need at least an expr"
+   [(_, Def _ _)] -> Left "need an expr"
    [(t, e)] -> Right $ mkTyped t $ Let pairs e
    (_, Def n1 e1) : e -> go ((n1, e1):pairs) e
-   _ -> Left $ "can only have one non-Def" <> tshow exprs
+   (_, TypeDecl _) : e -> go pairs e
+   _ -> Left $ "can only have one expr" <> tshow exprs
 
 eval1 :: Env -> Expr -> Either Text Val
 eval1 env@(Env syms) = \case
@@ -55,6 +57,7 @@ eval1 env@(Env syms) = \case
     call vf varg
 
   Def _ _ -> Left "Def should have been handled"
+  TypeDecl _ -> Left "TypeDecl should have been handled"
 
 call :: Val -> Val -> Either Text Val
 call (Builtin (Builtin' _ b)) a = b a

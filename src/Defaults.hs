@@ -1,11 +1,11 @@
-module Defaults (defaultEnv, defaultSymbols) where
+module Defaults (defaultEnv) where
 
 import Prelude.Extra
 import qualified Data.Map as Map
 
+import Env
 import Eval
 import Syntax
-import TypeCheck
 
 rbb :: Name -> (Val -> Either Text Val) -> Either Text Val
 rbb name func = Right $ Builtin $ Builtin' name func
@@ -50,8 +50,8 @@ hif0 (Float v) = rbb "if0.1" $ \then_ -> rbb "if0.2" $ \else_ ->
   if v == 0 then Right then_ else Right else_
 hif0 _ = Left "first arg to if0 must be a Float"
 
-defaults :: Map Name (Val, PType Tc)
-defaults = Map.fromList
+defaultVarEnv :: Map Name (PType Tc, Val)
+defaultVarEnv = fmap (\(x, y) -> (y, x)) $ Map.fromList
   [ "+" ~~ bb "+" hplus ~~ Forall [] (tFloat +-> tFloat +-> tFloat)
   , "-" ~~ bb "-" hminus ~~ Forall [] (tFloat +-> tFloat +-> tFloat)
   , "*" ~~ bb "*" htimes ~~ Forall [] (tFloat +-> tFloat +-> tFloat)
@@ -76,12 +76,6 @@ defaults = Map.fromList
         infixr 1 ~~
         (~~) = (,)
 
-defaultSymbols :: Env
-defaultSymbols = Env $ fst <$> defaults
-
-defaultVarEnv :: TypeEnv
-defaultVarEnv = TypeEnv $ snd <$> defaults
-
 defaultTypeEnv :: TypeEnv
 defaultTypeEnv = TypeEnv $ Map.fromList
   [ ("Float", Forall [] tFloat)
@@ -91,5 +85,5 @@ defaultTypeEnv = TypeEnv $ Map.fromList
   , (",", Forall [] $ TCon $ TC (HType :*-> HType :*-> HType) ",")
   ]
 
-defaultEnv :: InferEnv
-defaultEnv = InferEnv { ieVars = defaultVarEnv, ieTypes = defaultTypeEnv }
+defaultEnv :: FullEnv
+defaultEnv = FullEnv { feVars = defaultVarEnv, feTypes = defaultTypeEnv }

@@ -6,6 +6,7 @@ import Test.Hspec
 import Text.InterpolatedString.Perl6 (q)
 
 import Defaults
+import Env
 import Eval
 import Parser
 import Syntax
@@ -16,16 +17,28 @@ typeCheck :: String -> Either Text (PType Tc)
 typeCheck program = do
    trees <- parseWholeFile "<str>" program
    exprs <- treesToExprs trees
+
+   let decls = flip mapMaybe (rmType <$> exprs) $ \case
+         TypeDecl d -> Just d
+         _ -> Nothing
+   newEnv <- declareTypes decls defaultEnv
+
    expr1 <- def2let exprs
-   runTypeCheck defaultEnv expr1
+   runTypeCheck (getInferEnv newEnv) expr1
 
 runEval :: String -> Either Text Val
 runEval program = do
    trees <- parseWholeFile "<str>" program
    exprs <- treesToExprs trees
+
+   let decls = flip mapMaybe (rmType <$> exprs) $ \case
+         TypeDecl d -> Just d
+         _ -> Nothing
+   newEnv <- declareTypes decls defaultEnv
+
    expr1 <- def2let exprs
-   void $ runTypeCheck defaultEnv expr1
-   eval1 defaultSymbols (rmType expr1)
+   void $ runTypeCheck (getInferEnv newEnv) expr1
+   eval1 (getSymbols newEnv) (rmType expr1)
 
 main :: IO ()
 main = hspec $ do
@@ -113,4 +126,8 @@ main = hspec $ do
                   (f (either id g))
                   (g (λ x (f (Left x)))))
              (f (Right 3)))|]
-        `returns`  Float 3
+        `returns` Float 3
+
+    it "type declaration" $ do
+      [q|(type Foo Bar Baz) (if0 0 Bar Baz)|]
+        `returns` Tag "Bar" []

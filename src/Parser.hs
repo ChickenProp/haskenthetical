@@ -140,6 +140,14 @@ treeToExpr = \case
   STTree (STBare "def" : _) ->
     Left "bad Def"
 
+  STTree (STBare "type" : STBare name : constructors) -> do
+    constrs <- forM constructors $ \case
+      STBare cname -> return (Name cname, [])
+      _ -> Left "Only simple constructors right now"
+    unTyped $ TypeDecl $ TypeDecl' (Name name) [] constrs
+  STTree (STBare "type" : _) ->
+    Left "bad type"
+
   STTree [a] -> treeToExpr a
   STTree [a1, a2] -> do
     a1' <- treeToExpr a1

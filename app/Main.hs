@@ -8,6 +8,7 @@ import qualified Options.Applicative as O
 import Shower (printer)
 
 import Defaults
+import Env
 import Eval
 import Parser
 import Syntax
@@ -16,6 +17,7 @@ import TypeCheck
 data CmdLine = CmdLine
   { printTree :: Bool
   , printExpr :: Bool
+  , printEnv :: Bool
   , printType :: Bool
   , verbose :: Bool
   , noExec :: Bool
@@ -26,6 +28,7 @@ parser :: O.Parser CmdLine
 parser = CmdLine
   <$> O.switch (O.long "print-tree" <> O.help "Print the syntax tree")
   <*> O.switch (O.long "print-expr" <> O.help "Print the parsed expressions")
+  <*> O.switch (O.long "print-env" <> O.help "Print the environment")
   <*> O.switch (O.long "print-type" <> O.help "Print the inferred type")
   <*> O.switch (O.long "verbose" <> O.short 'v' <> O.help "Print everything")
   <*> O.switch (O.long "no-exec" <> O.help "Don't execute the program")
@@ -37,7 +40,11 @@ main :: IO ()
 main = do
   c <- O.execParser opts
   let c' = if verbose c
-        then c { printTree = True, printExpr = True, printType = True }
+        then c { printTree = True
+               , printExpr = True
+               , printEnv = True
+               , printType = True
+               }
         else c
   doCmdLine c'
  where
@@ -57,9 +64,16 @@ doCmdLine (CmdLine {..}) = runExceptT go >>= \case
    when printTree $ liftIO $ printer trees
    exprs <- liftEither $ treesToExprs trees
    when printExpr $ liftIO $ printer exprs
+
+   let decls = flip mapMaybe (rmType <$> exprs) $ \case
+         TypeDecl d -> Just d
+         _ -> Nothing
+   newEnv <- liftEither $ declareTypes decls defaultEnv
+   when printEnv $ liftIO $ printer newEnv
+
    expr1 <- liftEither $ def2let exprs
-   ty <- liftEither $ runTypeCheck defaultEnv expr1
+   ty <- liftEither $ runTypeCheck (getInferEnv newEnv) expr1
    when printType $ liftIO $ printer ty
    if noExec
      then return Nothing
-     else liftEither $ Just <$> eval1 defaultSymbols (rmType expr1)
+     else liftEither $ Just <$> eval1 (getSymbols newEnv) (rmType expr1)

@@ -7,6 +7,7 @@ module Syntax
   , Builtin(..)
   , Thunk(..)
   , Typed(..)
+  , TypeDecl(..)
   , MType(..)
   , PType(..)
   , TCon(..)
@@ -54,6 +55,13 @@ instance Eq Thunk where
 newtype Env = Env { unEnv :: Map Name Val }
   deriving (Eq, Show)
 
+data TypeDecl = TypeDecl'
+  { tdName :: Name
+  , tdVars :: [Name]
+  , tdConstructors :: [(Name, [Name])]
+  }
+  deriving (Eq, Show)
+
 data Val
   = Float Double
   | String Text
@@ -63,6 +71,7 @@ data Val
   | Val :* Val
   | HLeft Val
   | HRight Val
+  | Tag Name [Val]
   deriving (Eq, Show)
 
 data Expr
@@ -73,6 +82,7 @@ data Expr
   | Lam Name Expr
   | Call Expr Expr
   | Def Name Expr
+  | TypeDecl TypeDecl
   deriving (Eq, Show)
 
 data Kind = HType | Kind :*-> Kind
