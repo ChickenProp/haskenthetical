@@ -119,29 +119,11 @@ lookupVar n = do
 unify :: MType Tc -> MType Tc -> Infer ()
 unify t1 t2 = tell [(t1, t2)]
 
-lookupType :: PType Ps -> Infer (PType Tc)
-lookupType = \case
-  Forall [] (TCon (TC NoExt n)) -> do
-   env <- asks ieTypes
-   case tLookup n env of
-     Nothing -> lift $ Left $ "unknown type " <> tshow n
-     Just t -> return t
-  Forall [] (TVar _) ->
-    lift $ Left "I don't know how to handle vars in type annotations yet"
-  Forall [] (a `TApp` b) -> do
-    tl <- lookupType $ Forall [] a
-    tr <- lookupType $ Forall [] b
-    case (tl, tr) of
-      (Forall [] tl', Forall [] tr') -> do
-        return $ Forall [] $ tl' `TApp` tr'
-      _ -> lift $ Left "Somehow got a Forall from `lookupType`?"
-  Forall _ _ ->
-    lift $ Left "I don't know how to handle foralls in type annotations yet"
-
 inferTyped :: Typed Expr -> Infer (MType Tc)
 inferTyped (UnTyped e) = infer e
 inferTyped (Typed t e) = do
-  t' <- instantiate =<< lookupType t
+  env <- asks ieTypes
+  t' <- instantiate =<< lift (ps2tc_PType env t)
   e' <- infer e
   unify t' e'
   return t'

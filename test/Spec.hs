@@ -131,3 +131,9 @@ main = hspec $ do
     it "type declaration" $ do
       [q|(type Foo Bar Baz) (if0 0 Bar Baz)|]
         `returns` Tag "Bar" []
+
+      [q|(type Maybe-Float Nothing (Just Float)) (if0 3 Nothing (Just 3))|]
+        `returns` Tag "Just" [Float 3]
+
+      [q|(type Point (Point Float Float Float)) (Point 1 2 3)|]
+        `returns` Tag "Point" [Float 1, Float 2, Float 3]

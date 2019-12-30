@@ -5,12 +5,12 @@ module Env
   , declareTypes
   , getInferEnv
   , getSymbols
+  , ps2tc_PType
   ) where
 
 import Prelude.Extra
 
 import qualified Data.Map as Map
-import Data.Map ((!?))
 
 import Syntax
 
@@ -33,6 +33,27 @@ getSymbols (FullEnv {feVars}) = Env $ snd <$> feVars
 tInsert :: Name -> PType Tc -> TypeEnv -> TypeEnv
 tInsert n t (TypeEnv m) = TypeEnv $ Map.insert n t m
 
+tLookup :: Name -> TypeEnv -> Maybe (PType Tc)
+tLookup n (TypeEnv m) = Map.lookup n m
+
+ps2tc_PType :: TypeEnv -> PType Ps -> Either Text (PType Tc)
+ps2tc_PType env = \case
+  Forall [] (TCon (TC NoExt n)) -> do
+   case tLookup n env of
+     Nothing -> Left $ "unknown type " <> tshow n
+     Just t -> return t
+  Forall [] (TVar _) ->
+    Left "I don't know how to handle vars in type annotations yet"
+  Forall [] (a `TApp` b) -> do
+    tl <- ps2tc_PType env $ Forall [] a
+    tr <- ps2tc_PType env $ Forall [] b
+    case (tl, tr) of
+      (Forall [] tl', Forall [] tr') -> do
+        return $ Forall [] $ tl' `TApp` tr'
+      _ -> Left "Somehow got a Forall from `ps2tc_PType`?"
+  Forall _ _ ->
+    Left "I don't know how to handle foralls in type annotations yet"
+
 declareTypes :: [TypeDecl] -> FullEnv -> Either Text FullEnv
 declareTypes decls env = foldM (flip declareType) env decls
 
@@ -54,15 +75,22 @@ declareType (TypeDecl' { tdName, tdConstructors }) env = do
     (feVars env) tdConstructors
 
   -- We'll need to do constructors after all types have been added
-  conType :: [Name] -> Either Text (PType Tc)
+  conType :: [MType Ps] -> Either Text (PType Tc)
   conType argNames = do
     types <- forM argNames $ \name -> do
-      pt <- maybe (Left "no such type") return $ feVars env !? name
-      case fst pt of
+      pt <- ps2tc_PType (feTypes env) (Forall [] name)
+      case pt of
         Forall [] mt -> return mt
         Forall _ _ -> Left "shouldn't be any vars here"
     return $ Forall [] $ foldr (+->) newMType types
 
-  conVal :: Name -> [Name] -> Either Text Val
-  conVal conName [] = return $ Tag conName []
-  conVal _ _ = Left "don't support constructor args yet"
+  conVal :: Name -> [MType Ps] -> Either Text Val
+  conVal conName ts = go [] 0 (length ts)
+   where
+    go :: [Val] -> Int -> Int -> Either Text Val
+    go acc _ 0 = return $ Tag conName acc
+    go acc d n = return $ Builtin $ Builtin' (mkName d) $ \v ->
+      go (acc ++ [v]) (d + 1) (n - 1)
+
+    mkName 0 = conName
+    mkName n = conName <> "." <> Name (tshow n)

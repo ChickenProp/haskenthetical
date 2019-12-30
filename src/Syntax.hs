@@ -35,7 +35,7 @@ type Tc = 'Typechecked
 data NoExt = NoExt deriving (Eq, Show, Ord)
 
 newtype Name = Name { unName :: Text }
-  deriving (Eq, Ord, Show, IsString)
+  deriving (Eq, Ord, Show, IsString, Semigroup, Monoid)
 
 -- Just so that `Val` can derive instances
 data Builtin = Builtin' Name (Val -> Either Text Val)
@@ -58,7 +58,7 @@ newtype Env = Env { unEnv :: Map Name Val }
 data TypeDecl = TypeDecl'
   { tdName :: Name
   , tdVars :: [Name]
-  , tdConstructors :: [(Name, [Name])]
+  , tdConstructors :: [(Name, [MType Ps])]
   }
   deriving (Eq, Show)
 

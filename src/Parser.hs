@@ -92,7 +92,7 @@ treeToExpr = \case
     expr' <- treeToExpr expr
     case expr' of
       Typed _ _ -> Left "can't type something twice" -- any reason why not?
-      UnTyped e -> flip Typed e <$> parseType typ
+      UnTyped e -> flip Typed e <$> parsePType typ
 
   STTree [STBare "λ", params, body] -> do
     b <- treeToExpr body
@@ -143,7 +143,8 @@ treeToExpr = \case
   STTree (STBare "type" : STBare name : constructors) -> do
     constrs <- forM constructors $ \case
       STBare cname -> return (Name cname, [])
-      _ -> Left "Only simple constructors right now"
+      STTree (STBare cname : args) -> fmap (Name cname,) $ mapM parseMType args
+      _ -> Left "Bad constructor"
     unTyped $ TypeDecl $ TypeDecl' (Name name) [] constrs
   STTree (STBare "type" : _) ->
     Left "bad type"
@@ -160,14 +161,15 @@ treeToExpr = \case
 treesToExprs :: [SyntaxTree] -> Either Text [Typed Expr]
 treesToExprs = mapM treeToExpr
 
-parseType :: SyntaxTree -> Either Text (PType Ps)
-parseType tree = Forall [] <$> go tree
- where
-  go = \case
-    STBare n -> return $ TCon $ TC NoExt $ Name n
-    STFloat _ -> Left "Cannot put a Float in a type"
-    STString _ -> Left "Cannot put a String in a type"
-    STTree [] -> Left "Empty type"
-    STTree xs -> do
-      ts <- mapM go xs
-      return $ foldl1' TApp ts
+parsePType :: SyntaxTree -> Either Text (PType Ps)
+parsePType tree = Forall [] <$> parseMType tree
+
+parseMType :: SyntaxTree -> Either Text (MType Ps)
+parseMType = \case
+  STBare n -> return $ TCon $ TC NoExt $ Name n
+  STFloat _ -> Left "Cannot put a Float in a type"
+  STString _ -> Left "Cannot put a String in a type"
+  STTree [] -> Left "Empty type"
+  STTree xs -> do
+    ts <- mapM parseMType xs
+    return $ foldl1' TApp ts
