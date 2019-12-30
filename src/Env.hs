@@ -55,17 +55,31 @@ ps2tc_PType env = \case
     Left "I don't know how to handle foralls in type annotations yet"
 
 declareTypes :: [TypeDecl] -> FullEnv -> Either Text FullEnv
-declareTypes decls env = foldM (flip declareType) env decls
+declareTypes decls env = do
+  -- We might have mutually recursive types, e.g.
+  --
+  --     (Type Foo (Foo Bar))
+  --     (Type Bar (Bar Foo))
+  --
+  -- By declaring all the type constructors before any of the data constructors,
+  -- this isn't a problem.
+  env2 <- foldM (flip declareType) env decls
+  foldM (flip declareTypeConstructors) env2 decls
 
 declareType :: TypeDecl -> FullEnv -> Either Text FullEnv
-declareType (TypeDecl' { tdName, tdConstructors }) env = do
-  nv <- newVars
+declareType (TypeDecl' { tdName }) env = do
   nt <- newTypes
-  return env { feVars = nv, feTypes = nt }
+  return env { feTypes = nt }
+ where
+  newPType = Forall [] $ TCon $ TC HType tdName
+  newTypes = return $ tInsert tdName newPType (feTypes env)
+
+declareTypeConstructors :: TypeDecl -> FullEnv -> Either Text FullEnv
+declareTypeConstructors (TypeDecl' { tdName, tdConstructors }) env = do
+  nv <- newVars
+  return env { feVars = nv }
  where
   newMType = TCon $ TC HType tdName
-  newPType = Forall [] newMType
-  newTypes = return $ tInsert tdName newPType (feTypes env)
   newVars = foldM
     (\vars (conName, argNames) -> do
       ty <- conType argNames
@@ -74,7 +88,6 @@ declareType (TypeDecl' { tdName, tdConstructors }) env = do
     )
     (feVars env) tdConstructors
 
-  -- We'll need to do constructors after all types have been added
   conType :: [MType Ps] -> Either Text (PType Tc)
   conType argNames = do
     types <- forM argNames $ \name -> do

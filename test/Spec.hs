@@ -137,3 +137,10 @@ main = hspec $ do
 
       [q|(type Point (Point Float Float Float)) (Point 1 2 3)|]
         `returns` Tag "Point" [Float 1, Float 2, Float 3]
+
+    it "(mutually) recursive type declarations" $ do
+      [q|(type List-Float Nil (Cons Float List-Float)) (Cons 3 Nil)|]
+        `returns` Tag "Cons" [Float 3, Tag "Nil" []]
+
+      [q|(type Foo (Foo Bar)) (type Bar X (Bar Foo)) (Bar (Foo (Bar (Foo X))))|]
+        `returns` Tag "Bar" [Tag "Foo" [Tag "Bar" [Tag "Foo" [Tag "X" []]]]]
