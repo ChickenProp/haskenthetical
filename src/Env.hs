@@ -30,8 +30,13 @@ getInferEnv (FullEnv {feVars, feTypes}) =
 getSymbols :: FullEnv -> Env
 getSymbols (FullEnv {feVars}) = Env $ snd <$> feVars
 
-tInsert :: Name -> PType Tc -> TypeEnv -> TypeEnv
-tInsert n t (TypeEnv m) = TypeEnv $ Map.insert n t m
+insertUnique :: Ord k => e -> k -> v -> Map k v -> Either e (Map k v)
+insertUnique e k v orig = Map.alterF alter k orig
+ where alter (Just _) = Left e
+       alter Nothing = Right (Just v)
+
+tInsertUnique :: e -> Name -> PType Tc -> TypeEnv -> Either e TypeEnv
+tInsertUnique e n t (TypeEnv m) = TypeEnv <$> insertUnique e n t m
 
 tLookup :: Name -> TypeEnv -> Maybe (PType Tc)
 tLookup n (TypeEnv m) = Map.lookup n m
@@ -72,7 +77,8 @@ declareType (TypeDecl' { tdName }) env = do
   return env { feTypes = nt }
  where
   newPType = Forall [] $ TCon $ TC HType tdName
-  newTypes = return $ tInsert tdName newPType (feTypes env)
+  newTypes = tInsertUnique ("multiple declarations of type: " <> tshow tdName)
+                           tdName newPType (feTypes env)
 
 declareTypeConstructors :: TypeDecl -> FullEnv -> Either Text FullEnv
 declareTypeConstructors (TypeDecl' { tdName, tdConstructors }) env = do
@@ -84,7 +90,8 @@ declareTypeConstructors (TypeDecl' { tdName, tdConstructors }) env = do
     (\vars (conName, argNames) -> do
       ty <- conType argNames
       val <- conVal conName argNames
-      return $ Map.insert conName (ty, val) vars
+      insertUnique ("multiple declarations of constructor: " <> tshow tdName)
+                   conName (ty, val) vars
     )
     (feVars env) tdConstructors
 

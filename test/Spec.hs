@@ -97,6 +97,11 @@ main = hspec $ do
       "(: (, Float) 3)" `tcFailsWith` "Unifying types"
 
   describe "Evaluation" $ do
+    let failsWith :: String -> String -> Expectation
+        failsWith prog err = case runEval prog of
+          Left x -> Text.unpack x `shouldStartWith` err
+          Right _ -> expectationFailure "Expected Left"
+
     let returns :: String -> Val -> Expectation
         prog `returns` v = runEval prog `shouldBe` Right v
 
@@ -144,3 +149,10 @@ main = hspec $ do
 
       [q|(type Foo (Foo Bar)) (type Bar X (Bar Foo)) (Bar (Foo (Bar (Foo X))))|]
         `returns` Tag "Bar" [Tag "Foo" [Tag "Bar" [Tag "Foo" [Tag "X" []]]]]
+
+    it "forbids name conflicts in type declarations" $ do
+      [q|(type A A) (type A A) 1|] `failsWith` "multiple declarations of type"
+
+    it "forbids name conflicts in constructors" $ do
+      [q|(type A A) (type B A) 1|]
+        `failsWith` "multiple declarations of constructor"
