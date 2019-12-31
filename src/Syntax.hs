@@ -1,5 +1,6 @@
 module Syntax
-  ( Pass(..), Ps, Tc, NoExt(..)
+  ( CompileError(..)
+  , Pass(..), Ps, Tc, NoExt(..)
   , Name(..)
   , Env(..)
   , Expr(..)
@@ -27,6 +28,20 @@ import Prelude.Extra
 import Data.Map.Strict (Map)
 import qualified Data.Text as Text
 import GHC.Exts (IsString)
+
+data CompileError
+  = CEParseError Text
+  | CEMalformedExpr Text
+  | CEMultiDeclareType Name
+  | CEMultiDeclareConstructor Name
+  | CEUnknownType Name
+  | CEUnificationFail (MType Tc) (MType Tc)
+  | CEKindMismatch (MType Tc) (MType Tc)
+  | CETVarAsRoot (MType Tc)
+  | CEUnboundVar Name
+  | CEInfiniteType (MType Tc)
+  | CECompilerBug Text
+  deriving (Eq, Show)
 
 data Pass = Parsed | Typechecked
 type Ps = 'Parsed

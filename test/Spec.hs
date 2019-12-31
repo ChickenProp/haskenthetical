@@ -15,29 +15,29 @@ import TypeCheck
 
 typeCheck :: String -> Either Text (PType Tc)
 typeCheck program = do
-   trees <- parseWholeFile "<str>" program
-   exprs <- treesToExprs trees
+   trees <- first tshow $ parseWholeFile "<str>" program
+   exprs <- first tshow $ treesToExprs trees
 
    let decls = flip mapMaybe (rmType <$> exprs) $ \case
          TypeDecl d -> Just d
          _ -> Nothing
-   newEnv <- declareTypes decls defaultEnv
+   newEnv <- first tshow $ declareTypes decls defaultEnv
 
    expr1 <- def2let exprs
-   runTypeCheck (getInferEnv newEnv) expr1
+   first tshow $ runTypeCheck (getInferEnv newEnv) expr1
 
 runEval :: String -> Either Text Val
 runEval program = do
-   trees <- parseWholeFile "<str>" program
-   exprs <- treesToExprs trees
+   trees <- first tshow $ parseWholeFile "<str>" program
+   exprs <- first tshow $ treesToExprs trees
 
    let decls = flip mapMaybe (rmType <$> exprs) $ \case
          TypeDecl d -> Just d
          _ -> Nothing
-   newEnv <- declareTypes decls defaultEnv
+   newEnv <- first tshow $ declareTypes decls defaultEnv
 
    expr1 <- def2let exprs
-   void $ runTypeCheck (getInferEnv newEnv) expr1
+   void $ first tshow $ runTypeCheck (getInferEnv newEnv) expr1
    eval1 (getSymbols newEnv) (rmType expr1)
 
 main :: IO ()
@@ -92,9 +92,9 @@ main = hspec $ do
         `hasType` Forall [] (tFloat +:* tString)
 
     it "rejects incorrectly typed constants" $ do
-      "(: String 3)" `tcFailsWith` "unification fail"
-      [q|(: Float "foo")|] `tcFailsWith` "unification fail"
-      "(: (, Float) 3)" `tcFailsWith` "Unifying types"
+      "(: String 3)" `tcFailsWith` "CEUnificationFail"
+      [q|(: Float "foo")|] `tcFailsWith` "CEUnificationFail"
+      "(: (, Float) 3)" `tcFailsWith` "CEKindMismatch"
 
   describe "Evaluation" $ do
     let failsWith :: String -> String -> Expectation
@@ -151,8 +151,8 @@ main = hspec $ do
         `returns` Tag "Bar" [Tag "Foo" [Tag "Bar" [Tag "Foo" [Tag "X" []]]]]
 
     it "forbids name conflicts in type declarations" $ do
-      [q|(type A A) (type A A) 1|] `failsWith` "multiple declarations of type"
+      [q|(type A A) (type A A) 1|] `failsWith` "CEMultiDeclareType"
 
     it "forbids name conflicts in constructors" $ do
       [q|(type A A) (type B A) 1|]
-        `failsWith` "multiple declarations of constructor"
+        `failsWith` "CEMultiDeclareConstructor"

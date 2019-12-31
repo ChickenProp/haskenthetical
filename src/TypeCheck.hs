@@ -79,7 +79,7 @@ instance Substitutable TypeEnv where
 -- generalize `e` to `Forall [e] e`, and then that won't unify with `Float`. By
 -- running the solver, we instead generalize `Float` to `Forall [] Float`.
 
-runTypeCheck :: InferEnv -> Typed Expr -> Either Text (PType Tc)
+runTypeCheck :: InferEnv -> Typed Expr -> Either CompileError (PType Tc)
 runTypeCheck env expr = do
   (ty, _, constraints) <- runRWST (inferTyped expr) env (InferState letters)
   subst <- solver1 constraints
@@ -91,7 +91,7 @@ runTypeCheck env expr = do
 ---
 
 data InferState = InferState { _vars :: [TVar Tc] }
-type Infer a = RWST InferEnv [Constraint] InferState (Either Text) a
+type Infer a = RWST InferEnv [Constraint] InferState (Either CompileError) a
 
 genSym :: Infer (MType Tc)
 genSym = do
@@ -113,7 +113,7 @@ lookupVar :: Name -> Infer (MType Tc)
 lookupVar n = do
   env <- asks ieVars
   case tLookup n env of
-    Nothing -> lift $ Left $ "unbound variable " <> tshow n
+    Nothing -> lift $ Left $ CEUnboundVar n
     Just t -> instantiate t
 
 unify :: MType Tc -> MType Tc -> Infer ()
@@ -178,7 +178,7 @@ infer expr = case expr of
 ---
 
 type Unifier = (Subst, [Constraint])
-type Solve a = Either Text a
+type Solve a = Either CompileError a
 
 -- | Subst that applies s2 followed by s1
 compose :: Subst -> Subst -> Subst
@@ -188,25 +188,25 @@ s1@(Subst s1') `compose` (Subst s2') =
 -- | Subst that binds variable a to type t
 bind :: TVar Tc -> MType Tc -> Solve Subst
 bind a t | t == TVar a = return nullSubst
-         | a `Set.member` ftv t = Left "infinite type"
+         | a `Set.member` ftv t = Left $ CEInfiniteType t
          | otherwise = return $ Subst $ Map.singleton a t
 
 unifies :: MType Tc -> MType Tc -> Solve Subst
 unifies t1 t2
   | t1 == t2 = return nullSubst
   | kind t1 /= kind t2
-    = Left $ "Unifying types with different kinds: " <> tshow (t1, t2)
+    = Left $ CEKindMismatch t1 t2
 unifies (TVar v) t = bind v t
 unifies t (TVar v) = bind v t
 unifies t1@(t11 `TApp` t12) t2@(t21 `TApp` t22)
   -- The root of a type application must be a fixed constructor, not a type
   -- variable. I'm not entirely sure why, and may just remove this restriction
   -- in future.
-  | isTVar t11 || isTVar t21
-    = Left $ "Root must be fixed constructor. Got: " <> tshow (t1, t2)
+  | isTVar t11 = Left $ CETVarAsRoot t1
+  | isTVar t21 = Left $ CETVarAsRoot t2
   | otherwise = unifiesMany [t11, t12] [t21, t22]
   where isTVar = \case { TVar _ -> True; TCon _ -> False; TApp _ _ -> False }
-unifies a b = Left $ "unification fail: " <> tshow a <> " is not " <> tshow b
+unifies a b = Left $ CEUnificationFail a b
 
 unifiesMany :: [MType Tc] -> [MType Tc] -> Solve Subst
 unifiesMany [] [] = return nullSubst
@@ -214,7 +214,7 @@ unifiesMany (t1 : ts1) (t2 : ts2) = do
   su1 <- unifies t1 t2
   su2 <- unifiesMany (apply su1 ts1) (apply su1 ts2)
   return (su2 `compose` su1)
-unifiesMany _ _ = Left "unification mismatch"
+unifiesMany _ _ = Left $ CECompilerBug "unification mismatch"
 
 solver :: Unifier -> Solve Subst
 solver (su, cs) =

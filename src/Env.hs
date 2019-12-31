@@ -41,25 +41,27 @@ tInsertUnique e n t (TypeEnv m) = TypeEnv <$> insertUnique e n t m
 tLookup :: Name -> TypeEnv -> Maybe (PType Tc)
 tLookup n (TypeEnv m) = Map.lookup n m
 
-ps2tc_PType :: TypeEnv -> PType Ps -> Either Text (PType Tc)
+ps2tc_PType :: TypeEnv -> PType Ps -> Either CompileError (PType Tc)
 ps2tc_PType env = \case
   Forall [] (TCon (TC NoExt n)) -> do
    case tLookup n env of
-     Nothing -> Left $ "unknown type " <> tshow n
+     Nothing -> Left $ CEUnknownType n
      Just t -> return t
   Forall [] (TVar _) ->
-    Left "I don't know how to handle vars in type annotations yet"
+    Left $ CECompilerBug
+      "I don't know how to handle vars in type annotations yet"
   Forall [] (a `TApp` b) -> do
     tl <- ps2tc_PType env $ Forall [] a
     tr <- ps2tc_PType env $ Forall [] b
     case (tl, tr) of
       (Forall [] tl', Forall [] tr') -> do
         return $ Forall [] $ tl' `TApp` tr'
-      _ -> Left "Somehow got a Forall from `ps2tc_PType`?"
+      _ -> Left $ CECompilerBug "Somehow got a Forall from `ps2tc_PType`?"
   Forall _ _ ->
-    Left "I don't know how to handle foralls in type annotations yet"
+    Left $ CECompilerBug
+      "I don't know how to handle foralls in type annotations yet"
 
-declareTypes :: [TypeDecl] -> FullEnv -> Either Text FullEnv
+declareTypes :: [TypeDecl] -> FullEnv -> Either CompileError FullEnv
 declareTypes decls env = do
   -- We might have mutually recursive types, e.g.
   --
@@ -71,16 +73,16 @@ declareTypes decls env = do
   env2 <- foldM (flip declareType) env decls
   foldM (flip declareTypeConstructors) env2 decls
 
-declareType :: TypeDecl -> FullEnv -> Either Text FullEnv
+declareType :: TypeDecl -> FullEnv -> Either CompileError FullEnv
 declareType (TypeDecl' { tdName }) env = do
   nt <- newTypes
   return env { feTypes = nt }
  where
   newPType = Forall [] $ TCon $ TC HType tdName
-  newTypes = tInsertUnique ("multiple declarations of type: " <> tshow tdName)
+  newTypes = tInsertUnique (CEMultiDeclareType tdName)
                            tdName newPType (feTypes env)
 
-declareTypeConstructors :: TypeDecl -> FullEnv -> Either Text FullEnv
+declareTypeConstructors :: TypeDecl -> FullEnv -> Either CompileError FullEnv
 declareTypeConstructors (TypeDecl' { tdName, tdConstructors }) env = do
   nv <- newVars
   return env { feVars = nv }
@@ -90,27 +92,26 @@ declareTypeConstructors (TypeDecl' { tdName, tdConstructors }) env = do
     (\vars (conName, argNames) -> do
       ty <- conType argNames
       val <- conVal conName argNames
-      insertUnique ("multiple declarations of constructor: " <> tshow tdName)
-                   conName (ty, val) vars
+      insertUnique (CEMultiDeclareConstructor conName) conName (ty, val) vars
     )
     (feVars env) tdConstructors
 
-  conType :: [MType Ps] -> Either Text (PType Tc)
+  conType :: [MType Ps] -> Either CompileError (PType Tc)
   conType argNames = do
     types <- forM argNames $ \name -> do
       pt <- ps2tc_PType (feTypes env) (Forall [] name)
       case pt of
         Forall [] mt -> return mt
-        Forall _ _ -> Left "shouldn't be any vars here"
+        Forall _ _ -> Left $ CECompilerBug "shouldn't be any vars here"
     return $ Forall [] $ foldr (+->) newMType types
 
-  conVal :: Name -> [MType Ps] -> Either Text Val
-  conVal conName ts = go [] 0 (length ts)
+  conVal :: Name -> [MType Ps] -> Either CompileError Val
+  conVal conName ts = return $ go [] 0 (length ts)
    where
-    go :: [Val] -> Int -> Int -> Either Text Val
-    go acc _ 0 = return $ Tag conName acc
-    go acc d n = return $ Builtin $ Builtin' (mkName d) $ \v ->
-      go (acc ++ [v]) (d + 1) (n - 1)
+    go :: [Val] -> Int -> Int -> Val
+    go acc _ 0 = Tag conName acc
+    go acc d n = Builtin $ Builtin' (mkName d) $ \v ->
+      Right $ go (acc ++ [v]) (d + 1) (n - 1)
 
     mkName 0 = conName
     mkName n = conName <> "." <> Name (tshow n)

@@ -76,9 +76,10 @@ stTree = between (symbol "(") (symbol ")") (sepBy stParser sc)
 stWholeFile :: Parser [SyntaxTree]
 stWholeFile = between sc eof (sepBy stParser sc)
 
-parseWholeFile :: String -> String -> Either Text [SyntaxTree]
+parseWholeFile :: String -> String -> Either CompileError [SyntaxTree]
 parseWholeFile fName input =
-  first (Text.pack . errorBundlePretty) $ parse stWholeFile fName input
+  first (CEParseError . Text.pack . errorBundlePretty)
+    $ parse stWholeFile fName input
 
 treeToExpr :: SyntaxTree -> Either Text (Typed Expr)
 treeToExpr = \case
@@ -158,8 +159,8 @@ treeToExpr = \case
  where
   unTyped = return . UnTyped
 
-treesToExprs :: [SyntaxTree] -> Either Text [Typed Expr]
-treesToExprs = mapM treeToExpr
+treesToExprs :: [SyntaxTree] -> Either CompileError [Typed Expr]
+treesToExprs = mapM (first CEMalformedExpr . treeToExpr)
 
 parsePType :: SyntaxTree -> Either Text (PType Ps)
 parsePType tree = Forall [] <$> parseMType tree
