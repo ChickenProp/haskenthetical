@@ -76,13 +76,13 @@ defaultVarEnv = fmap (\(x, y) -> (y, x)) $ Map.fromList
         infixr 1 ~~
         (~~) = (,)
 
-defaultTypeEnv :: TypeEnv
-defaultTypeEnv = TypeEnv $ Map.fromList
-  [ ("Float", Forall [] tFloat)
-  , ("String", Forall [] tString)
-  , ("->", Forall [] $ TCon $ TC (HType :*-> HType :*-> HType) "->")
-  , ("+", Forall [] $ TCon $ TC (HType :*-> HType :*-> HType) "+")
-  , (",", Forall [] $ TCon $ TC (HType :*-> HType :*-> HType) ",")
+defaultTypeEnv :: TypeEnv MType
+defaultTypeEnv = Map.fromList
+  [ ("Float", tFloat)
+  , ("String", tString)
+  , ("->", TCon $ TC (HType :*-> HType :*-> HType) "->")
+  , ("+", TCon $ TC (HType :*-> HType :*-> HType) "+")
+  , (",", TCon $ TC (HType :*-> HType :*-> HType) ",")
   ]
 
 defaultEnv :: FullEnv

@@ -94,6 +94,8 @@ treeToExpr = \case
     case expr' of
       Typed _ _ -> Left "can't type something twice" -- any reason why not?
       UnTyped e -> flip Typed e <$> parsePType typ
+  STTree (STBare ":" : _) -> do
+      Left "Bad type annotation"
 
   STTree [STBare "λ", params, body] -> do
     b <- treeToExpr body
@@ -119,7 +121,7 @@ treeToExpr = \case
            let b1 = (Name n, rmType v')
            (b1 :) <$> parseBindings bs
          parseBindings x = Left $ "could not parse bindings:" <> tshow x
-  STTree (STBare "let":_) ->
+  STTree (STBare "let" : _) ->
     Left "bad let"
 
   STTree [STBare "letrec", STTree bindings, body] -> do
@@ -141,12 +143,21 @@ treeToExpr = \case
   STTree (STBare "def" : _) ->
     Left "bad Def"
 
-  STTree (STBare "type" : STBare name : constructors) -> do
-    constrs <- forM constructors $ \case
+  STTree (STBare "type" : typeCon : dataCons) -> do
+    let parseTCon :: MType Ps -> Either Text (Name, [Name])
+        parseTCon = \case
+          TCon (TC NoExt n) -> return (n, [])
+          TVar _ -> Left "can't declare a type variable"
+          _ `TApp` (TCon _) -> Left "type constructor where I expected a var"
+          _ `TApp` (TApp _ _) -> Left "type application where I expected a var"
+          a `TApp` (TVar (TV NoExt v)) -> fmap (++ [v]) <$> parseTCon a
+    (typeName, typeVars) <- parseTCon =<< parseMType typeCon
+
+    constrs <- forM dataCons $ \case
       STBare cname -> return (Name cname, [])
       STTree (STBare cname : args) -> fmap (Name cname,) $ mapM parseMType args
       _ -> Left "Bad constructor"
-    unTyped $ TypeDecl $ TypeDecl' (Name name) [] constrs
+    unTyped $ TypeDecl $ TypeDecl' typeName typeVars constrs
   STTree (STBare "type" : _) ->
     Left "bad type"
 
@@ -167,7 +178,9 @@ parsePType tree = Forall [] <$> parseMType tree
 
 parseMType :: SyntaxTree -> Either Text (MType Ps)
 parseMType = \case
-  STBare n -> return $ TCon $ TC NoExt $ Name n
+  STBare n -> return $ case Text.splitAt 1 n of
+    ("$", n') -> TVar $ TV NoExt $ Name n'
+    _ -> TCon $ TC NoExt $ Name n
   STFloat _ -> Left "Cannot put a Float in a type"
   STString _ -> Left "Cannot put a String in a type"
   STTree [] -> Left "Empty type"

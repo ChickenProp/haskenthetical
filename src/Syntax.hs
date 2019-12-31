@@ -108,7 +108,7 @@ infixr 4 :*->
 class HasKind t where
   kind :: t -> Kind
 
-data TVar (p :: Pass) = TV !(XTV p) Text
+data TVar (p :: Pass) = TV !(XTV p) Name
 deriving instance Eq (TVar Ps)
 deriving instance Eq (TVar Tc)
 deriving instance Show (TVar Ps)

@@ -10,6 +10,7 @@ import Control.Monad.Trans (lift)
 import Control.Monad.RWS.Strict
   (RWST, runRWST, tell, local, get, put, asks, listen)
 import qualified Data.Map as Map
+import Data.Map ((!?))
 import qualified Data.Set as Set
 import qualified Data.Text as Text
 
@@ -18,17 +19,11 @@ import Syntax
 
 type Constraint = (MType Tc, MType Tc)
 
-tInsert :: Name -> PType Tc -> TypeEnv -> TypeEnv
-tInsert n t (TypeEnv m) = TypeEnv $ Map.insert n t m
-
-tInsertMany :: [(Name, PType Tc)] -> TypeEnv -> TypeEnv
-tInsertMany bs (TypeEnv m) = TypeEnv $ Map.union (Map.fromList bs) m
-
-tLookup :: Name -> TypeEnv -> Maybe (PType Tc)
-tLookup n (TypeEnv m) = Map.lookup n m
+insertMany :: Ord k => [(k, v)] -> Map k v -> Map k v
+insertMany bs m = Map.union (Map.fromList bs) m
 
 extending :: Name -> PType Tc -> Infer a -> Infer a
-extending n t m = local (field @"ieVars" %~ tInsert n t) m
+extending n t m = local (field @"ieVars" %~ Map.insert n t) m
 
 newtype Subst = Subst { _subst :: Map (TVar Tc) (MType Tc) }
   deriving (Eq, Show)
@@ -62,9 +57,9 @@ instance Substitutable Constraint where
   apply s (t1, t2) = (apply s t1, apply s t2)
   ftv (t1, t2) = ftv t1 `Set.union` ftv t2
 
-instance Substitutable TypeEnv where
-  apply s (TypeEnv m) = TypeEnv $ apply s <$> m
-  ftv (TypeEnv m) = ftv $ Map.elems m
+instance Substitutable v => Substitutable (Map k v) where
+  apply s m = apply s <$> m
+  ftv m = ftv $ Map.elems m
 
 
 -- Typechecking has two main phases. In the Infer phase, we generate a type for
@@ -86,7 +81,8 @@ runTypeCheck env expr = do
   return $ generalize (ieVars env) $ apply subst ty
  where
   letters :: [TVar Tc]
-  letters = map (TV HType . Text.pack) $ [1..] >>= flip replicateM ['a'..'z']
+  letters =
+    map (TV HType . Name . Text.pack) $ [1..] >>= flip replicateM ['a'..'z']
 
 ---
 
@@ -105,14 +101,14 @@ instantiate (Forall as t) = do
   let subst = Subst $ Map.fromList (zip as as')
   return $ apply subst t
 
-generalize :: TypeEnv -> MType Tc -> PType Tc
+generalize :: TypeEnv PType -> MType Tc -> PType Tc
 generalize env t = Forall as t
   where as = Set.toList $ ftv t `Set.difference` ftv env
 
 lookupVar :: Name -> Infer (MType Tc)
 lookupVar n = do
   env <- asks ieVars
-  case tLookup n env of
+  case env !? n of
     Nothing -> lift $ Left $ CEUnboundVar n
     Just t -> instantiate t
 
@@ -123,7 +119,7 @@ inferTyped :: Typed Expr -> Infer (MType Tc)
 inferTyped (UnTyped e) = infer e
 inferTyped (Typed t e) = do
   env <- asks ieTypes
-  t' <- instantiate =<< lift (ps2tc_PType env t)
+  t' <- instantiate =<< lift (ps2tc_PType (Forall [] <$> env) t)
   e' <- infer e
   unify t' e'
   return t'
@@ -157,13 +153,13 @@ infer expr = case expr of
           (n, Forall [] tv)
     (t1s, constraints) <- listen $ forM (zip tvs bindings)
       $ \(tv, (_, e1)) -> do
-        t1 <- local (field @"ieVars" %~ tInsertMany tBindings) (infer e1)
+        t1 <- local (field @"ieVars" %~ insertMany tBindings) (infer e1)
         unify tv t1
         return t1
     subst <- liftEither $ solver1 constraints
     let gens = flip map (zip bindings t1s) $ \((n, _), t1) ->
           (n, generalize env (apply subst t1))
-    seq gens $ local (field @"ieVars" %~ tInsertMany gens) $ infer e
+    seq gens $ local (field @"ieVars" %~ insertMany gens) $ infer e
 
   Call fun a -> do
     t1 <- infer fun

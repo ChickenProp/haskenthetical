@@ -1,7 +1,7 @@
 module Env
   ( FullEnv(..)
   , InferEnv(..)
-  , TypeEnv(..)
+  , TypeEnv
   , declareTypes
   , getInferEnv
   , getSymbols
@@ -10,22 +10,24 @@ module Env
 
 import Prelude.Extra
 
+import Data.List ((\\))
 import qualified Data.Map as Map
+import Data.Map ((!?))
 
 import Syntax
 
-newtype TypeEnv = TypeEnv { _unTypeEnv :: Map Name (PType Tc) } deriving (Show)
+type TypeEnv t = Map Name (t Tc)
 
 data FullEnv = FullEnv
-  { feVars :: Map Name (PType Tc, Val), feTypes :: TypeEnv }
+  { feVars :: Map Name (PType Tc, Val), feTypes :: TypeEnv MType }
   deriving (Show, Generic)
 
-data InferEnv = InferEnv { ieVars :: TypeEnv, ieTypes :: TypeEnv }
+data InferEnv = InferEnv { ieVars :: TypeEnv PType, ieTypes :: TypeEnv MType }
   deriving (Show, Generic)
 
 getInferEnv :: FullEnv -> InferEnv
 getInferEnv (FullEnv {feVars, feTypes}) =
-  InferEnv {ieVars = TypeEnv $ fst <$> feVars, ieTypes = feTypes}
+  InferEnv {ieVars = fst <$> feVars, ieTypes = feTypes}
 
 getSymbols :: FullEnv -> Env
 getSymbols (FullEnv {feVars}) = Env $ snd <$> feVars
@@ -35,16 +37,16 @@ insertUnique e k v orig = Map.alterF alter k orig
  where alter (Just _) = Left e
        alter Nothing = Right (Just v)
 
-tInsertUnique :: e -> Name -> PType Tc -> TypeEnv -> Either e TypeEnv
-tInsertUnique e n t (TypeEnv m) = TypeEnv <$> insertUnique e n t m
+ps2tc_MType :: TypeEnv MType -> MType Ps -> Either CompileError (MType Tc)
+ps2tc_MType env = \case
+  TCon (TC NoExt n) -> maybe (Left $ CEUnknownType n) return (env !? n)
+  TVar (TV NoExt n) -> return $ TVar $ TV HType n
+  TApp a b -> TApp <$> ps2tc_MType env a <*> ps2tc_MType env b
 
-tLookup :: Name -> TypeEnv -> Maybe (PType Tc)
-tLookup n (TypeEnv m) = Map.lookup n m
-
-ps2tc_PType :: TypeEnv -> PType Ps -> Either CompileError (PType Tc)
+ps2tc_PType :: TypeEnv PType -> PType Ps -> Either CompileError (PType Tc)
 ps2tc_PType env = \case
   Forall [] (TCon (TC NoExt n)) -> do
-   case tLookup n env of
+   case env !? n of
      Nothing -> Left $ CEUnknownType n
      Just t -> return t
   Forall [] (TVar _) ->
@@ -74,20 +76,22 @@ declareTypes decls env = do
   foldM (flip declareTypeConstructors) env2 decls
 
 declareType :: TypeDecl -> FullEnv -> Either CompileError FullEnv
-declareType (TypeDecl' { tdName }) env = do
+declareType (TypeDecl' { tdName, tdVars }) env = do
   nt <- newTypes
   return env { feTypes = nt }
  where
-  newPType = Forall [] $ TCon $ TC HType tdName
-  newTypes = tInsertUnique (CEMultiDeclareType tdName)
-                           tdName newPType (feTypes env)
+  k = foldr (\_ a -> HType :*-> a) HType tdVars
+  newMType = TCon $ TC k tdName
+  newTypes = insertUnique (CEMultiDeclareType tdName)
+                          tdName newMType (feTypes env)
 
 declareTypeConstructors :: TypeDecl -> FullEnv -> Either CompileError FullEnv
-declareTypeConstructors (TypeDecl' { tdName, tdConstructors }) env = do
+declareTypeConstructors (TypeDecl' { tdName, tdVars, tdConstructors }) env = do
   nv <- newVars
   return env { feVars = nv }
  where
-  newMType = TCon $ TC HType tdName
+  k = foldr (\_ a -> HType :*-> a) HType tdVars
+  newMType = TCon $ TC k tdName
   newVars = foldM
     (\vars (conName, argNames) -> do
       ty <- conType argNames
@@ -98,12 +102,20 @@ declareTypeConstructors (TypeDecl' { tdName, tdConstructors }) env = do
 
   conType :: [MType Ps] -> Either CompileError (PType Tc)
   conType argNames = do
-    types <- forM argNames $ \name -> do
-      pt <- ps2tc_PType (feTypes env) (Forall [] name)
-      case pt of
-        Forall [] mt -> return mt
-        Forall _ _ -> Left $ CECompilerBug "shouldn't be any vars here"
-    return $ Forall [] $ foldr (+->) newMType types
+    types <- mapM (ps2tc_MType (feTypes env)) argNames
+    let allVars = map (TV HType) tdVars
+        finalType = foldl TApp newMType (TVar <$> allVars)
+
+    -- Forbid constructors from using type variables not mentioned in
+    -- `tdVars`. This would give us values with no attached types. E.g. after
+    -- `(type X (X $y))`, `(X 3)` and `(X "foo")` are both valid expressions of
+    -- type `X`.
+    let usedVars = mapMaybe (\case { TVar x -> Just x; _ -> Nothing }) types
+    case map (\(TV _ n) -> n) usedVars \\ tdVars of
+      [] -> return ()
+      x:_ -> Left (CEUnknownType x) -- can only easily report one at a time
+
+    return $ Forall allVars $ foldr (+->) finalType types
 
   conVal :: Name -> [MType Ps] -> Either CompileError Val
   conVal conName ts = return $ go [] 0 (length ts)

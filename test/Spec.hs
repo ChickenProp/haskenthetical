@@ -54,10 +54,10 @@ main = hspec $ do
           Left x -> Text.unpack x `shouldStartWith` err
           Right _ -> expectationFailure "Expected Left"
 
-    let tvh :: Text -> TVar Tc
+    let tvh :: Name -> TVar Tc
         tvh = TV HType
 
-        ttvh :: Text -> MType Tc
+        ttvh :: Name -> MType Tc
         ttvh = TVar . tvh
 
     it "accepts constants" $ do
@@ -156,3 +156,11 @@ main = hspec $ do
     it "forbids name conflicts in constructors" $ do
       [q|(type A A) (type B A) 1|]
         `failsWith` "CEMultiDeclareConstructor"
+
+    it "allows constructors to not use all type variables" $ do
+      [q|(type (E $l $r) (L $l) (R $r)) (, (L 3) (R "foo"))|]
+        `returns` (Tag "L" [Float 3] :* Tag "R" [String "foo"])
+
+    it "forbids novel type variables in constructors" $ do
+      [q|(type (Maybe $x) (Just $y)) (Just 3)|]
+        `failsWith` "CEUnknownType"
