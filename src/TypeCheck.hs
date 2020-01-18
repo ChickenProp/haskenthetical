@@ -190,7 +190,7 @@ bind a t | t == TVar a = return nullSubst
 unifies :: MType Tc -> MType Tc -> Solve Subst
 unifies t1 t2
   | t1 == t2 = return nullSubst
-  | kind t1 /= kind t2
+  | getKind t1 /= getKind t2
     = Left $ CEKindMismatch t1 t2
 unifies (TVar v) t = bind v t
 unifies t (TVar v) = bind v t

@@ -111,7 +111,7 @@ declareTypeConstructors (TypeDecl' { tdName, tdVars, tdConstructors }) env = do
     -- `(type X (X $y))`, `(X 3)` and `(X "foo")` are both valid expressions of
     -- type `X`.
     let usedVars = mapMaybe (\case { TVar x -> Just x; _ -> Nothing }) types
-    case map (\(TV _ n) -> n) usedVars \\ tdVars of
+    case map getName usedVars \\ tdVars of
       [] -> return ()
       x:_ -> Left (CEUnknownType x) -- can only easily report one at a time
 

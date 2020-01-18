@@ -1,7 +1,7 @@
 module Syntax
   ( CompileError(..)
   , Pass(..), Ps, Tc, NoExt(..)
-  , Name(..)
+  , Name(..), HasName(..)
   , Env(..)
   , Expr(..)
   , Val(..)
@@ -49,8 +49,11 @@ type Tc = 'Typechecked
 
 data NoExt = NoExt deriving (Eq, Show, Ord)
 
-newtype Name = Name { unName :: Text }
+newtype Name = Name Text
   deriving (Eq, Ord, Show, IsString, Semigroup, Monoid)
+
+class HasName a where
+  getName :: a -> Name
 
 -- Just so that `Val` can derive instances
 data Builtin = Builtin' Name (Val -> Either Text Val)
@@ -106,7 +109,7 @@ data Kind = HType | Kind :*-> Kind
 infixr 4 :*->
 
 class HasKind t where
-  kind :: t -> Kind
+  getKind :: t -> Kind
 
 data TVar (p :: Pass) = TV !(XTV p) Name
 deriving instance Eq (TVar Ps)
@@ -120,7 +123,8 @@ type family XTV (p :: Pass)
 type instance XTV Ps = NoExt
 type instance XTV Tc = Kind
 
-instance HasKind (TVar Tc) where kind (TV k _) = k
+instance HasName (TVar p) where getName (TV _ n) = n
+instance HasKind (TVar Tc) where getKind (TV k _) = k
 
 data TCon (p :: Pass) = TC !(XTC p) Name
 deriving instance Eq (TCon Ps)
@@ -132,7 +136,8 @@ type family XTC (p :: Pass)
 type instance XTC Ps = NoExt
 type instance XTC Tc = Kind
 
-instance HasKind (TCon Tc) where kind (TC k _) = k
+instance HasName (TCon p) where getName (TC _ n) = n
+instance HasKind (TCon Tc) where getKind (TC k _) = k
 
 data MType (p :: Pass)
   = TVar (TVar p)
@@ -144,10 +149,10 @@ deriving instance Show (MType Ps)
 deriving instance Show (MType Tc)
 
 instance HasKind (MType Tc) where
-  kind t = case t of
-    TVar v -> kind v
-    TCon c -> kind c
-    t1 `TApp` t2 -> case (kind t1, kind t2) of
+  getKind t = case t of
+    TVar v -> getKind v
+    TCon c -> getKind c
+    t1 `TApp` t2 -> case (getKind t1, getKind t2) of
       (k11 :*-> k12, k2) | k11 == k2 -> k12
       _ -> error $ "Type with malformed kind: " ++ show t
 
