@@ -176,7 +176,7 @@ main = hspec $ do
 
     it "allows constructors to not use all type variables" $ do
       [q|(type (E $l $r) (L $l) (R $r)) (, (L 3) (R "foo"))|]
-        `returns` (Tag "L" [Float 3] :* Tag "R" [String "foo"])
+        `returns` Tag "," [Tag "L" [Float 3], Tag "R" [String "foo"]]
 
     it "forbids novel type variables in constructors" $ do
       [q|(type (Maybe $x) (Just $y)) (Just 3)|]

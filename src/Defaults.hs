@@ -29,20 +29,20 @@ htimes (Float a) = rbb "*.1" $ \case
 htimes _ = Left "* only accepts floats"
 
 hcons :: Val -> Either Text Val
-hcons v1 = rbb "cons.1" $ \v2 -> Right $ v1 :* v2
+hcons v1 = rbb "cons.1" $ \v2 -> Right $ Tag "," [v1, v2]
 
 hcar :: Val -> Either Text Val
-hcar (a :* _) = Right a
+hcar (Tag "," [a, _]) = Right a
 hcar _ = Left "car only accepts pairs"
 
 hcdr :: Val -> Either Text Val
-hcdr (_ :* b) = Right b
+hcdr (Tag "," [_, b]) = Right b
 hcdr _ = Left "cdr only accepts pairs"
 
 heither :: Val -> Either Text Val
 heither l = rbb "either.1" $ \r -> rbb "either.2" $ \case
-  HLeft v -> call l v
-  HRight v -> call r v
+  Tag "Left" [v] -> call l v
+  Tag "Right" [v] -> call r v
   _ -> Left "final argument of either must be an Either"
 
 hif0 :: Val -> Either Text Val
@@ -58,8 +58,12 @@ defaultVarEnv = fmap (\(x, y) -> (y, x)) $ Map.fromList
   , "," ~~ bb "," hcons ~~ Forall [a', b'] (a +-> b +-> (a +:* b))
   , "car" ~~ bb "car" hcar ~~ Forall [a', b'] ((a +:* b) +-> a)
   , "cdr" ~~ bb "cdr" hcdr ~~ Forall [a', b'] ((a +:* b) +-> b)
-  , "Left" ~~ bb "Left" (Right . HLeft) ~~ Forall [a', b'] (a +-> (a +:+ b))
-  , "Right" ~~ bb "Right" (Right . HRight) ~~ Forall [a', b'] (b +-> (a +:+ b))
+  , "Left"
+      ~~ bb "Left" (Right . Tag "Left" . (: []))
+      ~~ Forall [a', b'] (a +-> (a +:+ b))
+  , "Right"
+      ~~ bb "Right" (Right . Tag "Right" . (: []))
+      ~~ Forall [a', b'] (b +-> (a +:+ b))
   , "either"
       ~~ bb "either" heither
       ~~ Forall [a', b', c'] ((a +-> c) +-> (b +-> c) +-> (a +:+ b) +-> c)

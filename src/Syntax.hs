@@ -86,9 +86,6 @@ data Val
   | Builtin Builtin
   | Thunk Thunk
   | Clos Env Name Expr
-  | Val :* Val
-  | HLeft Val
-  | HRight Val
   | Tag Name [Val]
   deriving (Eq, Show)
 
