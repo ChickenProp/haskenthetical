@@ -97,11 +97,6 @@ main = hspec $ do
       "(: (, Float) 3)" `tcFailsWith` "CEKindMismatch"
 
   describe "Evaluation" $ do
-    let failsWith :: String -> String -> Expectation
-        failsWith prog err = case runEval prog of
-          Left x -> Text.unpack x `shouldStartWith` err
-          Right _ -> expectationFailure "Expected Left"
-
     let returns :: String -> Val -> Expectation
         prog `returns` v = runEval prog `shouldBe` Right v
 
@@ -133,7 +128,16 @@ main = hspec $ do
              (f (Right 3)))|]
         `returns` Float 3
 
-    it "type declaration" $ do
+  describe "Type declaration" $ do
+    let failsWith :: String -> String -> Expectation
+        failsWith prog err = case runEval prog of
+          Left x -> Text.unpack x `shouldStartWith` err
+          Right _ -> expectationFailure "Expected Left"
+
+    let returns :: String -> Val -> Expectation
+        prog `returns` v = runEval prog `shouldBe` Right v
+
+    it "simple type declaration" $ do
       [q|(type Foo Bar Baz) (if0 0 Bar Baz)|]
         `returns` Tag "Bar" []
 
@@ -156,6 +160,19 @@ main = hspec $ do
     it "forbids name conflicts in constructors" $ do
       [q|(type A A) (type B A) 1|]
         `failsWith` "CEMultiDeclareConstructor"
+
+    it "allows type variables" $ do
+      [q|(type (Maybe $a) Nothing (Just $a)) Nothing|]
+        `returns` Tag "Nothing" []
+
+      [q|(type (Maybe $a) Nothing (Just $a)) (Just 3)|]
+        `returns` Tag "Just" [Float 3]
+
+      [q|(type (List $a) Nil (Cons $a (List $a))) (Cons 3 Nil)|]
+        `returns` Tag "Cons" [Float 3, Tag "Nil" []]
+
+      [q|(type (List $a) Nil (Cons $a (List $a))) (Cons 4 (Cons 3 Nil))|]
+        `returns` Tag "Cons" [Float 4, Tag "Cons" [Float 3, Tag "Nil" []]]
 
     it "allows constructors to not use all type variables" $ do
       [q|(type (E $l $r) (L $l) (R $r)) (, (L 3) (R "foo"))|]

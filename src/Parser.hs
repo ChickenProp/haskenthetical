@@ -178,8 +178,8 @@ parsePType tree = Forall [] <$> parseMType tree
 
 parseMType :: SyntaxTree -> Either Text (MType Ps)
 parseMType = \case
-  STBare n -> return $ case Text.splitAt 1 n of
-    ("$", n') -> TVar $ TV NoExt $ Name n'
+  STBare n -> return $ case Text.take 1 n of
+    "$" -> TVar $ TV NoExt $ Name n
     _ -> TCon $ TC NoExt $ Name n
   STFloat _ -> Left "Cannot put a Float in a type"
   STString _ -> Left "Cannot put a String in a type"
