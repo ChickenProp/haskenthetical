@@ -6,7 +6,6 @@ module Syntax
   , Expr(..)
   , Val(..)
   , Builtin(..)
-  , Thunk(..)
   , Typed(..)
   , TypeDecl(..)
   , MType(..)
@@ -34,6 +33,7 @@ data CompileError
   | CEMalformedExpr Text
   | CEMultiDeclareType Name
   | CEMultiDeclareConstructor Name
+  | CEMultiDeclareValue Name
   | CEUnknownType Name
   | CEUnificationFail (MType Tc) (MType Tc)
   | CEKindMismatch (MType Tc) (MType Tc)
@@ -62,14 +62,6 @@ instance Show Builtin where
 instance Eq Builtin where
   Builtin' n1 _ == Builtin' n2 _ = n1 == n2
 
--- LetRec needs us to be able to evaluate an expr with a pointer to itself in
--- its environment. For that we need some form of delayed execution.
-data Thunk = Thunk' Name (() -> Either Text Val)
-instance Show Thunk where
-  show (Thunk' (Name n) _) = "<thunk " ++ Text.unpack n ++ ">"
-instance Eq Thunk where
-  Thunk' n1 _ == Thunk' n2 _ = n1 == n2
-
 newtype Env = Env { unEnv :: Map Name Val }
   deriving (Eq, Show)
 
@@ -84,7 +76,7 @@ data Val
   = Float Double
   | String Text
   | Builtin Builtin
-  | Thunk Thunk
+  | Thunk Env Expr
   | Clos Env Name Expr
   | Tag Name [Val]
   deriving (Eq, Show)

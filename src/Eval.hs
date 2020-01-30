@@ -30,13 +30,12 @@ def2let exprs = go [] $ sortOn (not . isStatement . snd) $ map extractType exprs
    _ -> Left $ "can only have one expr" <> tshow exprs
 
 eval1 :: Env -> Expr -> Either Text Val
-eval1 env@(Env syms) = \case
-  Val (Thunk (Thunk' _ f)) -> f ()
+eval1 env@(Env syms) = elimThunk <=< \case
   Val x -> Right x
 
   Var x -> case Map.lookup x syms of
     Nothing -> Left $ "no such var: " <> tshow x
-    Just v -> eval1 env (Val v)
+    Just v -> Right v
 
   Let [] expr -> eval1 env expr
   Let ((n, e):bs) expr -> do
@@ -44,8 +43,7 @@ eval1 env@(Env syms) = \case
     eval1 (Env $ Map.insert n v syms) (Let bs expr)
 
   LetRec bindings expr -> do
-    let thunks = flip map bindings $ \(n, e) ->
-          (n, Thunk $ Thunk' n $ \() -> eval1 newenv e)
+    let thunks = flip map bindings $ \(n, e) -> (n, Thunk newenv e)
         newenv = Env $ Map.union (Map.fromList thunks) syms
     eval1 newenv expr
 
@@ -58,6 +56,10 @@ eval1 env@(Env syms) = \case
 
   Def _ _ -> Left "Def should have been handled"
   TypeDecl _ -> Left "TypeDecl should have been handled"
+ where
+  elimThunk :: Val -> Either Text Val
+  elimThunk (Thunk newenv e) = elimThunk =<< eval1 newenv e
+  elimThunk x = Right x
 
 call :: Val -> Val -> Either Text Val
 call (Builtin (Builtin' _ b)) a = b a

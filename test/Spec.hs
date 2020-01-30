@@ -181,3 +181,31 @@ main = hspec $ do
     it "forbids novel type variables in constructors" $ do
       [q|(type (Maybe $x) (Just $y)) (Just 3)|]
         `failsWith` "CEUnknownType"
+
+    it "simple type eliminators" $ do
+      [q|(type Foo Bar) (elim-Foo 3 Bar)|] `returns` Float 3
+      [q|(type Foo (Bar Float)) (elim-Foo (λ x x) (Bar 3))|] `returns` Float 3
+      [q|(type (Foo $x) (Bar $x)) (elim-Foo (λ x x) (Bar 3))|] `returns` Float 3
+      [q|(type (Foo $x) (Bar $x String))
+         (elim-Foo (λ (x y) (, x y)) (Bar 3 "Blah"))
+        |] `returns` Tag "," [Float 3, String "Blah"]
+
+      [q|(type Foo Bar Baz) (elim-Foo 3 4 Bar)|] `returns` Float 3
+      [q|(type Foo Bar Baz) (elim-Foo 3 4 Baz)|] `returns` Float 4
+
+
+{-
+
+(type (Maybe $x) Nothing (Just $x))
+elim-Maybe :      %a       $x -> %a   Maybe $x -> %a
+
+(type (Either $x $y) (Left $x) (Right $y))
+elim-Left  :         $x -> %a  $y -> %a     Either $x $y -> %a
+
+(type (List $a) Nil (Cons $a (List $a)))
+elim-List :     %a  $a -> List $a -> %a   %a
+
+(type Point (Point Float Float))
+elim-Point : Float -> Float -> %a   %a
+
+-}

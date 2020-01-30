@@ -73,7 +73,8 @@ declareTypes decls env = do
   -- By declaring all the type constructors before any of the data constructors,
   -- this isn't a problem.
   env2 <- foldM (flip declareType) env decls
-  foldM (flip declareTypeConstructors) env2 decls
+  env3 <- foldM (flip declareTypeConstructors) env2 decls
+  foldM (flip declareTypeEliminator) env3 decls
 
 declareType :: TypeDecl -> FullEnv -> Either CompileError FullEnv
 declareType (TypeDecl' { tdName, tdVars }) env = do
@@ -104,7 +105,7 @@ declareTypeConstructors (TypeDecl' { tdName, tdVars, tdConstructors }) env = do
   conType argNames = do
     types <- mapM (ps2tc_MType (feTypes env)) argNames
     let allVars = map (TV HType) tdVars
-        finalType = foldl TApp newMType (TVar <$> allVars)
+        finalType = foldl' TApp newMType (TVar <$> allVars)
 
     -- Forbid constructors from using type variables not mentioned in
     -- `tdVars`. This would give us values with no attached types. E.g. after
@@ -127,3 +128,61 @@ declareTypeConstructors (TypeDecl' { tdName, tdVars, tdConstructors }) env = do
 
     mkName 0 = conName
     mkName n = conName <> "." <> Name (tshow n)
+
+declareTypeEliminator :: TypeDecl -> FullEnv -> Either CompileError FullEnv
+declareTypeEliminator (TypeDecl' { tdName, tdVars, tdConstructors }) env = do
+  teType <- typeElimType
+  teVal <- typeElimVal
+  newVars <- insertUnique (CEMultiDeclareValue typeElimName)
+                          typeElimName (teType, teVal) (feVars env)
+  return env { feVars = newVars }
+ where
+  resultType :: MType Tc
+  resultType = TVar (TV HType "%a")
+
+  valKind = foldr (\_ a -> HType :*-> a) HType tdVars
+  allVars = TV HType <$> tdVars
+
+  valType :: MType Tc
+  valType = foldl' TApp (TCon $ TC valKind tdName) (TVar <$> allVars)
+
+  conElimType :: [MType Ps] -> Either CompileError (MType Tc)
+  conElimType typesPs = do
+    typesTc <- mapM (ps2tc_MType $ feTypes env) typesPs
+    return $ foldr (+->) resultType typesTc
+
+  typeElimType :: Either CompileError (PType Tc)
+  typeElimType = do
+    mt <- foldr (+->) (valType +-> resultType)
+            <$> mapM (conElimType . snd) tdConstructors
+    return $ Forall allVars mt
+
+  typeElimName :: Name
+  typeElimName = "elim-" <> tdName
+
+  applyConElim :: Val -> [Val] -> Either Text Val
+  applyConElim f vals =
+    Right $ Thunk (Env Map.empty) $ foldl' Call (Val f) (Val <$> vals)
+
+  typeElimVal :: Either CompileError Val
+  typeElimVal = case tdConstructors of
+    [] -> error "unhandled"
+    [(name, _)] -> Right $ Builtin $ Builtin' name $ \f1 ->
+      Right $ Builtin $ Builtin' name $ \case
+        Tag n xs | n == name -> applyConElim f1 xs
+        _ -> Left "Bad tag"
+    [(n1, _), (n2, _)] -> Right $ Builtin $ Builtin' n1 $ \f1 ->
+      Right $ Builtin $ Builtin' n1 $ \f2 ->
+        Right $ Builtin $ Builtin' n1 $ \case
+          Tag n xs | n == n1 -> applyConElim f1 xs
+          Tag n xs | n == n2 -> applyConElim f2 xs
+          _ -> Left "Bad tag"
+    [(n1, _), (n2, _), (n3, _)] -> Right $ Builtin $ Builtin' n1 $ \f1 ->
+      Right $ Builtin $ Builtin' n1 $ \f2 ->
+        Right $ Builtin $ Builtin' n1 $ \f3 ->
+          Right $ Builtin $ Builtin' n1 $ \case
+            Tag n xs | n == n1 -> applyConElim f1 xs
+            Tag n xs | n == n2 -> applyConElim f2 xs
+            Tag n xs | n == n3 -> applyConElim f3 xs
+            _ -> Left "Bad tag"
+    _ -> error "unhandled"
