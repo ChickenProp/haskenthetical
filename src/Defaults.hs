@@ -39,15 +39,21 @@ hcdr :: Val -> Either Text Val
 hcdr (Tag "," [_, b]) = Right b
 hcdr _ = Left "cdr only accepts pairs"
 
-heither :: Val -> Either Text Val
-heither l = rbb "either.1" $ \r -> rbb "either.2" $ \case
-  Tag "Left" [v] -> call l v
-  Tag "Right" [v] -> call r v
-  _ -> Left "final argument of either must be an Either"
+heither :: Val
+heither = mkBuiltinUnsafe $ do
+  l <- getArg "either"
+  r <- getArg "either.1"
+  e <- getArg "either.2"
+  pure $ case e of
+    Tag "Left" [v] -> call l v
+    Tag "Right" [v] -> call r v
+    _ -> Left "final argument of either must be an Either"
 
 hif0 :: Val -> Either Text Val
-hif0 (Float v) = rbb "if0.1" $ \then_ -> rbb "if0.2" $ \else_ ->
-  if v == 0 then Right then_ else Right else_
+hif0 (Float v) = mkBuiltin $ do
+  then_ <- getArg "if0.1"
+  else_ <- getArg "if0.2"
+  pure $ Right $ if v == 0 then then_ else else_
 hif0 _ = Left "first arg to if0 must be a Float"
 
 defaultVarEnv :: Map Name (PType Tc, Val)
@@ -65,7 +71,7 @@ defaultVarEnv = fmap (\(x, y) -> (y, x)) $ Map.fromList
       ~~ bb "Right" (Right . Tag "Right" . (: []))
       ~~ Forall [a', b'] (b +-> (a +:+ b))
   , "either"
-      ~~ bb "either" heither
+      ~~ heither
       ~~ Forall [a', b', c'] ((a +-> c) +-> (b +-> c) +-> (a +:+ b) +-> c)
   , "if0" ~~ bb "if0" hif0  ~~ Forall [a'] (tFloat +-> a +-> a +-> a)
   ]

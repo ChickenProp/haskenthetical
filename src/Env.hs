@@ -96,7 +96,7 @@ declareTypeConstructors (TypeDecl' { tdName, tdVars, tdConstructors }) env = do
   newVars = foldM
     (\vars (conName, argNames) -> do
       ty <- conType argNames
-      val <- conVal conName argNames
+      let val = conVal conName argNames
       insertUnique (CEMultiDeclareConstructor conName) conName (ty, val) vars
     )
     (feVars env) tdConstructors
@@ -118,13 +118,14 @@ declareTypeConstructors (TypeDecl' { tdName, tdVars, tdConstructors }) env = do
 
     return $ Forall allVars $ foldr (+->) finalType types
 
-  conVal :: Name -> [MType Ps] -> Either CompileError Val
-  conVal conName ts = return $ go [] 0 (length ts)
+  conVal :: Name -> [MType Ps] -> Val
+  conVal conName ts = go [] 0 (length ts)
    where
     go :: [Val] -> Int -> Int -> Val
     go acc _ 0 = Tag conName acc
-    go acc d n = Builtin $ Builtin' (mkName d) $ \v ->
-      Right $ go (acc ++ [v]) (d + 1) (n - 1)
+    go acc d n = mkBuiltinUnsafe $ do
+      v <- getArg (mkName d)
+      pure $ Right $ go (acc ++ [v]) (d + 1) (n - 1)
 
     mkName 0 = conName
     mkName n = conName <> "." <> Name (tshow n)

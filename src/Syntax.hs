@@ -20,6 +20,8 @@ module Syntax
   , extractType
   , mkTyped
   , rmType
+
+  , DoBuiltin(..), getArg, mkBuiltin, mkBuiltinUnsafe
   ) where
 
 import Prelude.Extra
@@ -61,6 +63,34 @@ instance Show Builtin where
   show (Builtin' (Name n) _) = "<" ++ Text.unpack n ++ ">"
 instance Eq Builtin where
   Builtin' n1 _ == Builtin' n2 _ = n1 == n2
+
+-- | A helper type to let us construct `Builtin` with do notation. Use with
+-- `getArg` and `mkBuiltin`.
+--
+-- There's no Monad instance for this, and there can't be. Needs ApplicativeDo.
+-- Some other datatype might let us achieve the same goal with more generality.
+data DoBuiltin a = DoBuiltin [Name] ([Val] -> a)
+
+instance Functor DoBuiltin where
+  fmap f (DoBuiltin ns g) = DoBuiltin ns (f . g)
+
+instance Applicative DoBuiltin where
+  pure a = DoBuiltin [] (const a)
+  (DoBuiltin ns1 f) <*> (DoBuiltin ns2 g) = DoBuiltin (ns1 ++ ns2) $ \vals ->
+    let fVals = take (length ns1) vals
+        gVals = drop (length ns1) vals
+    in (f fVals) (g gVals)
+
+getArg :: Name -> DoBuiltin Val
+getArg n = DoBuiltin [n] head
+
+mkBuiltin :: DoBuiltin (Either Text Val) -> Either Text Val
+mkBuiltin (DoBuiltin [] f) = f []
+mkBuiltin (DoBuiltin (n1:ns) f) = Right $ Builtin $ Builtin' n1 $ \v ->
+  mkBuiltin $ DoBuiltin ns (\vs -> f (v : vs))
+
+mkBuiltinUnsafe :: DoBuiltin (Either Text Val) -> Val
+mkBuiltinUnsafe = either (error "Bad DoBuiltin") id . mkBuiltin
 
 newtype Env = Env { unEnv :: Map Name Val }
   deriving (Eq, Show)
