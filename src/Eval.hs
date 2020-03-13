@@ -24,7 +24,7 @@ def2let exprs = go [] $ sortOn (not . isStatement . snd) $ map extractType exprs
   go pairs = \case
    [] -> Left "need at least an expr"
    [(_, Def _ _)] -> Left "need an expr"
-   [(t, e)] -> Right $ mkTyped t $ Let pairs e
+   [(t, e)] -> Right $ mkTyped t $ LetRec pairs e
    (_, Def n1 e1) : e -> go ((n1, e1):pairs) e
    (_, TypeDecl _) : e -> go pairs e
    _ -> Left $ "can only have one expr" <> tshow exprs

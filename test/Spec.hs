@@ -120,12 +120,19 @@ main = hspec $ do
       -- if0 evaluates both branches, so we use thunks to stop infinite loops
       [q|(letrec ((fac (λ x ((if0 x (λ s 1) (λ s (* x (fac (- x 1))))) 1))))
            (fac 3))|] `returns` Float 6
+      [q|(def fac (λ x ((if0 x (λ s 1) (λ s (* x (fac (- x 1))))) 1)))
+         (fac 3)|] `returns` Float 6
 
     it "letrec" $ do
       [q|(letrec ((id (λ x x))
                   (f (either id g))
                   (g (λ x (f (Left x)))))
              (f (Right 3)))|]
+        `returns` Float 3
+      [q|(def id (λ x x))
+         (def f (either id g))
+         (def g (λ x (f (Left x))))
+         (f (Right 3))|]
         `returns` Float 3
 
   describe "Type declaration" $ do
@@ -198,11 +205,9 @@ main = hspec $ do
         |] `returns` Tag "," [ Tag "," [Float 1, String "blah"]
                              , Tag "," [Float 2, String "boop"] ]
       [q|(type (List $a) Nil (Cons $a (List $a)))
-         (letrec ((sum (λ l
-                          (elim-List 0
-                                     (λ (n l2) (+ n (sum l2)))
-                                     l))))
-           (, (sum Nil)
-              (, (sum (Cons 3 Nil))
-                 (sum (Cons 3 (Cons 5 Nil))))))
+         (def sum (elim-List 0
+                             (λ (n l) (+ n (sum l)))))
+         (, (sum Nil)
+            (, (sum (Cons 3 Nil))
+               (sum (Cons 3 (Cons 5 Nil)))))
         |] `returns` Tag "," [Float 0, Tag "," [Float 3, Float 8]]
