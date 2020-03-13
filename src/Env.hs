@@ -133,9 +133,8 @@ declareTypeConstructors (TypeDecl' { tdName, tdVars, tdConstructors }) env = do
 declareTypeEliminator :: TypeDecl -> FullEnv -> Either CompileError FullEnv
 declareTypeEliminator (TypeDecl' { tdName, tdVars, tdConstructors }) env = do
   teType <- typeElimType
-  teVal <- typeElimVal
   newVars <- insertUnique (CEMultiDeclareValue typeElimName)
-                          typeElimName (teType, teVal) (feVars env)
+                          typeElimName (teType, typeElimVal) (feVars env)
   return env { feVars = newVars }
  where
   resultType :: MType Tc
@@ -165,25 +164,18 @@ declareTypeEliminator (TypeDecl' { tdName, tdVars, tdConstructors }) env = do
   applyConElim f vals =
     Right $ Thunk (Env Map.empty) $ foldl' Call (Val f) (Val <$> vals)
 
-  typeElimVal :: Either CompileError Val
-  typeElimVal = case tdConstructors of
-    [] -> error "unhandled"
-    [(name, _)] -> Right $ Builtin $ Builtin' name $ \f1 ->
-      Right $ Builtin $ Builtin' name $ \case
-        Tag n xs | n == name -> applyConElim f1 xs
+  typeElimVal :: Val
+  typeElimVal = go [] 0 (fst <$> tdConstructors)
+   where
+    go :: [(Name, Val)] -> Int -> [Name] -> Val
+    go acc _ [] = mkBuiltinUnsafe $ do
+      v <- getArg (tdName <> ".fin")
+      return $ case v of
+        Tag n xs | Just f <- lookup n acc -> applyConElim f xs
         _ -> Left "Bad tag"
-    [(n1, _), (n2, _)] -> Right $ Builtin $ Builtin' n1 $ \f1 ->
-      Right $ Builtin $ Builtin' n1 $ \f2 ->
-        Right $ Builtin $ Builtin' n1 $ \case
-          Tag n xs | n == n1 -> applyConElim f1 xs
-          Tag n xs | n == n2 -> applyConElim f2 xs
-          _ -> Left "Bad tag"
-    [(n1, _), (n2, _), (n3, _)] -> Right $ Builtin $ Builtin' n1 $ \f1 ->
-      Right $ Builtin $ Builtin' n1 $ \f2 ->
-        Right $ Builtin $ Builtin' n1 $ \f3 ->
-          Right $ Builtin $ Builtin' n1 $ \case
-            Tag n xs | n == n1 -> applyConElim f1 xs
-            Tag n xs | n == n2 -> applyConElim f2 xs
-            Tag n xs | n == n3 -> applyConElim f3 xs
-            _ -> Left "Bad tag"
-    _ -> error "unhandled"
+    go acc d (n : rest) = mkBuiltinUnsafe $ do
+      f <- getArg (mkName d)
+      return $ Right $ go (acc ++ [(n, f)]) (d+1) rest
+
+    mkName 0 = tdName
+    mkName n = tdName <> "." <> Name (tshow n)

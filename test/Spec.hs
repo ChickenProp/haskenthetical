@@ -182,7 +182,7 @@ main = hspec $ do
       [q|(type (Maybe $x) (Just $y)) (Just 3)|]
         `failsWith` "CEUnknownType"
 
-    it "simple type eliminators" $ do
+    it "type eliminators" $ do
       [q|(type Foo Bar) (elim-Foo 3 Bar)|] `returns` Float 3
       [q|(type Foo (Bar Float)) (elim-Foo (λ x x) (Bar 3))|] `returns` Float 3
       [q|(type (Foo $x) (Bar $x)) (elim-Foo (λ x x) (Bar 3))|] `returns` Float 3
@@ -192,20 +192,17 @@ main = hspec $ do
 
       [q|(type Foo Bar Baz) (elim-Foo 3 4 Bar)|] `returns` Float 3
       [q|(type Foo Bar Baz) (elim-Foo 3 4 Baz)|] `returns` Float 4
-
-
-{-
-
-(type (Maybe $x) Nothing (Just $x))
-elim-Maybe :      %a       $x -> %a   Maybe $x -> %a
-
-(type (Either $x $y) (Left $x) (Right $y))
-elim-Left  :         $x -> %a  $y -> %a     Either $x $y -> %a
-
-(type (List $a) Nil (Cons $a (List $a)))
-elim-List :     %a  $a -> List $a -> %a   %a
-
-(type Point (Point Float Float))
-elim-Point : Float -> Float -> %a   %a
-
--}
+      [q|(type (Maybe $a) Nothing (Just $a))
+         (, (elim-Maybe (, 1 "blah") (, 2) Nothing)
+            (elim-Maybe (, 1 "blah") (, 2) (Just "boop")))
+        |] `returns` Tag "," [ Tag "," [Float 1, String "blah"]
+                             , Tag "," [Float 2, String "boop"] ]
+      [q|(type (List $a) Nil (Cons $a (List $a)))
+         (letrec ((sum (λ l
+                          (elim-List 0
+                                     (λ (n l2) (+ n (sum l2)))
+                                     l))))
+           (, (sum Nil)
+              (, (sum (Cons 3 Nil))
+                 (sum (Cons 3 (Cons 5 Nil))))))
+        |] `returns` Tag "," [Float 0, Tag "," [Float 3, Float 8]]
