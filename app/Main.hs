@@ -64,16 +64,16 @@ doCmdLine (CmdLine {..}) = runExceptT go >>= \case
   go = do
    trees <- liftEither $ first tshow $ parseWholeFile "<str>" program
    when printTree $ liftIO $ printer trees
-   exprs <- liftEither $ first tshow $ treesToExprs trees
-   when printExpr $ printGist exprs
+   stmts <- liftEither $ first tshow $ treesToStmts trees
+   when printExpr $ printGist stmts
 
-   let decls = flip mapMaybe (rmType <$> exprs) $ \case
+   let decls = flip mapMaybe (rmType <$> stmts) $ \case
          TypeDecl d -> Just d
          _ -> Nothing
    newEnv <- liftEither $ first tshow $ declareTypes decls defaultEnv
    when printEnv $ printGist newEnv
 
-   expr1 <- liftEither $ def2let exprs
+   expr1 <- liftEither $ def2let stmts
    ty <- liftEither $ first tshow $ runTypeCheck (getInferEnv newEnv) expr1
    when printType $ printGist ty
    if noExec

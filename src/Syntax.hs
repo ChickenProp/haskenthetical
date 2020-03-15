@@ -3,6 +3,7 @@ module Syntax
   , Pass(..), Ps, Tc, NoExt(..)
   , Name(..), HasName(..)
   , Env(..)
+  , Stmt(..)
   , Expr(..)
   , Val(..)
   , Builtin(..)
@@ -137,8 +138,6 @@ data Expr
   | LetRec [(Name, Expr)] Expr
   | Lam Name Expr
   | Call Expr Expr
-  | Def Name Expr
-  | TypeDecl TypeDecl
   deriving (Eq, Show)
 
 instance Gist Expr where
@@ -149,6 +148,16 @@ instance Gist Expr where
     LetRec bindings expr -> TD.App "LetRec" [gist bindings, gist expr]
     Lam n expr -> TD.App "Lam" [gist n, gist expr]
     Call e1 e2 -> TD.App "Call" [gist e1, gist e2]
+
+data Stmt
+  = Expr Expr
+  | Def Name Expr
+  | TypeDecl TypeDecl
+  deriving (Eq, Show)
+
+instance Gist Stmt where
+  gist = \case
+    Expr e -> gist e
     Def n expr -> TD.App "Def" [gist n, gist expr]
     TypeDecl td -> gist td
 

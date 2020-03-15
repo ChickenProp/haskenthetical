@@ -168,9 +168,6 @@ infer expr = case expr of
     unify t1 (t2 +-> tv)
     return tv
 
-  Def _ _ -> error "shouldn't have a Def here"
-  TypeDecl _ -> error "shouldn't have a TypeDecl here"
-
 ---
 
 type Unifier = (Subst, [Constraint])

@@ -16,27 +16,27 @@ import TypeCheck
 typeCheck :: String -> Either Text (PType Tc)
 typeCheck program = do
    trees <- first tshow $ parseWholeFile "<str>" program
-   exprs <- first tshow $ treesToExprs trees
+   stmts <- first tshow $ treesToStmts trees
 
-   let decls = flip mapMaybe (rmType <$> exprs) $ \case
+   let decls = flip mapMaybe (rmType <$> stmts) $ \case
          TypeDecl d -> Just d
          _ -> Nothing
    newEnv <- first tshow $ declareTypes decls defaultEnv
 
-   expr1 <- def2let exprs
+   expr1 <- def2let stmts
    first tshow $ runTypeCheck (getInferEnv newEnv) expr1
 
 runEval :: String -> Either Text Val
 runEval program = do
    trees <- first tshow $ parseWholeFile "<str>" program
-   exprs <- first tshow $ treesToExprs trees
+   stmts <- first tshow $ treesToStmts trees
 
-   let decls = flip mapMaybe (rmType <$> exprs) $ \case
+   let decls = flip mapMaybe (rmType <$> stmts) $ \case
          TypeDecl d -> Just d
          _ -> Nothing
    newEnv <- first tshow $ declareTypes decls defaultEnv
 
-   expr1 <- def2let exprs
+   expr1 <- def2let stmts
    void $ first tshow $ runTypeCheck (getInferEnv newEnv) expr1
    eval1 (getSymbols newEnv) (rmType expr1)
 

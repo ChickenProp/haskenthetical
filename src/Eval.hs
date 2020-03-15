@@ -7,27 +7,21 @@ import qualified Data.Map.Strict as Map
 
 import Syntax
 
-isStatement :: Expr -> Bool
-isStatement = \case
-  Val _ -> False
-  Var _ -> False
-  Let _ _ -> False
-  LetRec _ _ -> False
-  Lam _ _ -> False
-  Call _ _ -> False
-  Def _ _ -> True
-  TypeDecl _ -> True
+isExpr :: Stmt -> Bool
+isExpr = \case
+  Expr _ -> True
+  Def _ _ -> False
+  TypeDecl _ -> False
 
-def2let :: [Typed Expr] -> Either Text (Typed Expr)
-def2let exprs = go [] $ sortOn (not . isStatement . snd) $ map extractType exprs
+def2let :: [Typed Stmt] -> Either Text (Typed Expr)
+def2let exprs = go [] $ sortOn (isExpr . snd) $ map extractType exprs
  where
   go pairs = \case
-   [] -> Left "need at least an expr"
-   [(_, Def _ _)] -> Left "need an expr"
-   [(t, e)] -> Right $ mkTyped t $ LetRec pairs e
+   [] -> Left "need at least one expr"
+   [(t, Expr e)] -> Right $ mkTyped t $ LetRec pairs e
+   (_, Expr _) : e -> Left $ "can only have one expr" <> tshow exprs
    (_, Def n1 e1) : e -> go ((n1, e1):pairs) e
    (_, TypeDecl _) : e -> go pairs e
-   _ -> Left $ "can only have one expr" <> tshow exprs
 
 eval1 :: Env -> Expr -> Either Text Val
 eval1 env@(Env syms) = elimThunk <=< \case
@@ -53,9 +47,6 @@ eval1 env@(Env syms) = elimThunk <=< \case
     vf <- eval1 env f
     varg <- eval1 env arg
     call vf varg
-
-  Def _ _ -> Left "Def should have been handled"
-  TypeDecl _ -> Left "TypeDecl should have been handled"
  where
   elimThunk :: Val -> Either Text Val
   elimThunk (Thunk newenv e) = elimThunk =<< eval1 newenv e
