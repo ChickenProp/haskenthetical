@@ -9,8 +9,8 @@ import Control.Monad.Except (liftEither)
 import Control.Monad.Trans (lift)
 import Control.Monad.RWS.Strict
   (RWST, runRWST, tell, local, get, put, asks, listen)
-import qualified Data.Map as Map
-import Data.Map ((!?))
+import qualified Data.Map.Strict as Map
+import Data.Map.Strict ((!?))
 import qualified Data.Set as Set
 import qualified Data.Text as Text
 

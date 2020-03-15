@@ -11,9 +11,11 @@ module Env
 import Prelude.Extra
 
 import Data.List ((\\))
-import qualified Data.Map as Map
-import Data.Map ((!?))
+import qualified Data.Map.Strict as Map
+import Data.Map.Strict ((!?))
+import qualified Data.TreeDiff as TD
 
+import Gist
 import Syntax
 
 type TypeEnv t = Map Name (t Tc)
@@ -21,6 +23,11 @@ type TypeEnv t = Map Name (t Tc)
 data FullEnv = FullEnv
   { feVars :: Map Name (PType Tc, Val), feTypes :: TypeEnv MType }
   deriving (Show, Generic)
+
+instance Gist FullEnv where
+  gist (FullEnv{..}) =
+    TD.Rec "FullEnv"
+      $ Map.fromList [("feVars", gist feVars), ("feTypes", gist feTypes)]
 
 data InferEnv = InferEnv { ieVars :: TypeEnv PType, ieTypes :: TypeEnv MType }
   deriving (Show, Generic)
@@ -169,7 +176,7 @@ declareTypeEliminator (TypeDecl' { tdName, tdVars, tdConstructors }) env = do
    where
     go :: [(Name, Val)] -> Int -> [Name] -> Val
     go acc _ [] = mkBuiltinUnsafe $ do
-      v <- getArg (tdName <> ".fin")
+      v <- getArg (typeElimName <> ".fin")
       return $ case v of
         Tag n xs | Just f <- lookup n acc -> applyConElim f xs
         _ -> Left "Bad tag"
@@ -177,5 +184,5 @@ declareTypeEliminator (TypeDecl' { tdName, tdVars, tdConstructors }) env = do
       f <- getArg (mkName d)
       return $ Right $ go (acc ++ [(n, f)]) (d+1) rest
 
-    mkName 0 = tdName
-    mkName n = tdName <> "." <> Name (tshow n)
+    mkName 0 = typeElimName
+    mkName n = typeElimName <> "." <> Name (tshow n)

@@ -1,7 +1,7 @@
 module Defaults (defaultEnv) where
 
 import Prelude.Extra
-import qualified Data.Map as Map
+import qualified Data.Map.Strict as Map
 
 import Env
 import Eval

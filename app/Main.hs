@@ -10,6 +10,7 @@ import Shower (printer)
 import Defaults
 import Env
 import Eval
+import Gist
 import Parser
 import Syntax
 import TypeCheck
@@ -59,21 +60,22 @@ doCmdLine (CmdLine {..}) = runExceptT go >>= \case
   Right Nothing -> return ()
   Right (Just res) -> printer res
  where
+  printGist v = liftIO $ print $ prettyGist v <> "\n"
   go = do
    trees <- liftEither $ first tshow $ parseWholeFile "<str>" program
    when printTree $ liftIO $ printer trees
    exprs <- liftEither $ first tshow $ treesToExprs trees
-   when printExpr $ liftIO $ printer exprs
+   when printExpr $ printGist exprs
 
    let decls = flip mapMaybe (rmType <$> exprs) $ \case
          TypeDecl d -> Just d
          _ -> Nothing
    newEnv <- liftEither $ first tshow $ declareTypes decls defaultEnv
-   when printEnv $ liftIO $ printer newEnv
+   when printEnv $ printGist newEnv
 
    expr1 <- liftEither $ def2let exprs
    ty <- liftEither $ first tshow $ runTypeCheck (getInferEnv newEnv) expr1
-   when printType $ liftIO $ printer ty
+   when printType $ printGist ty
    if noExec
      then return Nothing
      else liftEither $ Just <$> eval1 (getSymbols newEnv) (rmType expr1)

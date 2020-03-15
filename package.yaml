@@ -22,6 +22,7 @@ description:         Please see the README on GitHub at <https://github.com/gith
 default-extensions:
 - ApplicativeDo
 - DataKinds
+- DefaultSignatures
 - DeriveGeneric
 - FlexibleContexts
 - FlexibleInstances
@@ -46,9 +47,11 @@ dependencies:
 - lens
 - megaparsec
 - mtl
+- pretty
 - shower
 - text
 - transformers
+- tree-diff
 
 ghc-options:
 - -Wall

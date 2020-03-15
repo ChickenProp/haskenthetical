@@ -28,7 +28,10 @@ import Prelude.Extra
 
 import Data.Map.Strict (Map)
 import qualified Data.Text as Text
+import qualified Data.TreeDiff as TD
 import GHC.Exts (IsString)
+
+import Gist
 
 data CompileError
   = CEParseError Text
@@ -53,6 +56,8 @@ data NoExt = NoExt deriving (Eq, Show, Ord)
 
 newtype Name = Name Text
   deriving (Eq, Ord, Show, IsString, Semigroup, Monoid)
+instance Gist Name where
+  gist (Name n) = TD.App (Text.unpack n) []
 
 class HasName a where
   getName :: a -> Name
@@ -93,7 +98,7 @@ mkBuiltinUnsafe :: DoBuiltin (Either Text Val) -> Val
 mkBuiltinUnsafe = either (error "Bad DoBuiltin") id . mkBuiltin
 
 newtype Env = Env { unEnv :: Map Name Val }
-  deriving (Eq, Show)
+  deriving (Eq, Show, Gist)
 
 data TypeDecl = TypeDecl'
   { tdName :: Name
@@ -101,6 +106,10 @@ data TypeDecl = TypeDecl'
   , tdConstructors :: [(Name, [MType Ps])]
   }
   deriving (Eq, Show)
+
+instance Gist TypeDecl where
+  gist (TypeDecl' {..}) =
+    TD.App "TypeDecl" [gist tdName, gist tdVars, gist tdConstructors]
 
 data Val
   = Float Double
@@ -110,6 +119,16 @@ data Val
   | Clos Env Name Expr
   | Tag Name [Val]
   deriving (Eq, Show)
+
+instance Gist Val where
+  gist = \case
+    Float n -> gist n
+    String t -> gist t
+    Builtin (Builtin' n _) -> gist $ "<" <> n <> ">"
+    Thunk env expr -> TD.App "Thunk" [gist env, gist expr]
+    Clos _ _ _ -> gist ("Clos" :: Text)
+    Tag (Name n) vals -> TD.App (Text.unpack n) (map gist vals)
+
 
 data Expr
   = Val Val
@@ -121,6 +140,17 @@ data Expr
   | Def Name Expr
   | TypeDecl TypeDecl
   deriving (Eq, Show)
+
+instance Gist Expr where
+  gist = \case
+    Val v -> TD.App "Val" [gist v]
+    Var n -> TD.App "Var" [gist n]
+    Let bindings expr -> TD.App "Let" [gist bindings, gist expr]
+    LetRec bindings expr -> TD.App "LetRec" [gist bindings, gist expr]
+    Lam n expr -> TD.App "Lam" [gist n, gist expr]
+    Call e1 e2 -> TD.App "Call" [gist e1, gist e2]
+    Def n expr -> TD.App "Def" [gist n, gist expr]
+    TypeDecl td -> gist td
 
 data Kind = HType | Kind :*-> Kind
   deriving (Eq, Show, Ord)
@@ -138,6 +168,9 @@ deriving instance Show (TVar Tc)
 deriving instance Ord (TVar Ps)
 deriving instance Ord (TVar Tc)
 
+instance Gist (TVar p) where
+  gist (TV _ n) = gist n
+
 type family XTV (p :: Pass)
 type instance XTV Ps = NoExt
 type instance XTV Tc = Kind
@@ -150,6 +183,9 @@ deriving instance Eq (TCon Ps)
 deriving instance Eq (TCon Tc)
 deriving instance Show (TCon Ps)
 deriving instance Show (TCon Tc)
+
+instance Gist (TCon p) where
+  gist (TC _ n) = gist n
 
 type family XTC (p :: Pass)
 type instance XTC Ps = NoExt
@@ -166,6 +202,14 @@ deriving instance Eq (MType Ps)
 deriving instance Eq (MType Tc)
 deriving instance Show (MType Ps)
 deriving instance Show (MType Tc)
+
+instance Gist (MType p) where
+  gist = \case
+    TVar v -> gist v
+    TCon c -> gist c
+    TApp a b -> case gist a of
+      TD.App n xs -> TD.App n (xs ++ [gist b])
+      _ -> error "Unexpected gist"
 
 instance HasKind (MType Tc) where
   getKind t = case t of
@@ -206,7 +250,14 @@ deriving instance Eq (PType Tc)
 deriving instance Show (PType Ps)
 deriving instance Show (PType Tc)
 
+instance Gist (PType p) where
+  gist (Forall vs mt) = TD.App "Forall" [gist vs, gist mt]
+
 data Typed e = Typed (PType Ps) e | UnTyped e deriving (Eq, Show)
+
+instance Gist e => Gist (Typed e) where
+  gist (UnTyped e) = gist e
+  gist (Typed t e) = TD.App ":" [gist t, gist e]
 
 extractType :: Typed a -> (Maybe (PType Ps), a)
 extractType = \case
