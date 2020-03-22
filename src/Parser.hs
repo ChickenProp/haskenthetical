@@ -81,19 +81,11 @@ parseWholeFile fName input =
   first (CEParseError . Text.pack . errorBundlePretty)
     $ parse stWholeFile fName input
 
-treeToStmt :: SyntaxTree -> Either Text (Typed Stmt)
+treeToStmt :: SyntaxTree -> Either Text Stmt
 treeToStmt = \case
-  STTree [STBare ":", typ, expr] -> do
-    expr' <- treeToStmt expr
-    case expr' of
-      Typed _ _ -> Left "can't type something twice" -- any reason why not?
-      UnTyped e -> flip Typed e <$> parsePType typ
-  STTree (STBare ":" : _) -> do
-      Left "Bad type annotation"
-
   STTree [STBare "def", STBare name, body] -> do
     b <- treeToExpr body
-    return $ UnTyped $ Def (Name name) b
+    return $ Def (Name name) b
   STTree (STBare "def" : _) ->
     Left "bad Def"
 
@@ -111,11 +103,25 @@ treeToStmt = \case
       STBare cname -> return (Name cname, [])
       STTree (STBare cname : args) -> fmap (Name cname,) $ mapM parseMType args
       _ -> Left "Bad constructor"
-    return $ UnTyped $ TypeDecl $ TypeDecl' typeName typeVars constrs
+    return $ TypeDecl $ TypeDecl' typeName typeVars constrs
   STTree (STBare "type" : _) ->
     Left "bad type"
 
-  x -> UnTyped . Expr <$> treeToExpr x
+  x -> Expr <$> parseTyped treeToExpr x
+
+parseTyped
+  :: (SyntaxTree -> Either Text a) -> SyntaxTree -> Either Text (Typed a)
+parseTyped parseUntyped = \case
+  STTree [STBare ":", typ, x] -> do
+    parsed <- parseTyped parseUntyped x
+    case parsed of
+      -- maybe ideally `Typed` would be isomorphic to `([Type], )`
+      Typed _ _ -> Left "Can't type something twice"
+      UnTyped e -> Typed <$> parsePType typ <*> pure e
+  STTree (STBare ":" : _) -> do
+      Left "Bad type annotation"
+  x -> UnTyped <$> parseUntyped x
+
 
 treeToExpr :: SyntaxTree -> Either Text Expr
 treeToExpr = \case
@@ -126,12 +132,11 @@ treeToExpr = \case
   STTree [] -> Left "() is not currently a thing"
 
   STTree [STBare "λ", params, body] -> do
-    b <- treeToExpr body
+    b <- parseTyped treeToExpr body
     let go xs = case xs of
           [] -> Left "lambda needs at least one arg"
-          [(STBare x)] -> return $ Lam (Name x) b
-          ((STBare x):xs') -> Lam (Name x) <$> go xs'
-          _ -> Left "lambda args should be bare"
+          [n] -> Lam <$> parseTyped parseName n <*> pure b
+          (n:ns) -> Lam <$> parseTyped parseName n <*> (UnTyped <$> go ns)
     case params of
       STTree xs -> go xs
       STBare x -> go [STBare x]
@@ -141,38 +146,38 @@ treeToExpr = \case
 
   STTree [STBare "let", STTree bindings, body] -> do
     bs <- parseBindings bindings
-    b <- treeToExpr body
+    b <- parseTyped treeToExpr body
     return $ Let bs b
-   where parseBindings [] = return []
-         parseBindings (STTree [STBare n, v] : bs) = do
-           v' <- treeToExpr v
-           let b1 = (Name n, v')
-           (b1 :) <$> parseBindings bs
-         parseBindings x = Left $ "could not parse bindings:" <> tshow x
   STTree (STBare "let" : _) ->
     Left "bad let"
 
   STTree [STBare "letrec", STTree bindings, body] -> do
     bs <- parseBindings bindings
-    b <- treeToExpr body
+    b <- parseTyped treeToExpr body
     return $ LetRec bs b
-   where parseBindings [] = return []
-         parseBindings (STTree [STBare n, v] : bs) = do
-           v' <- treeToExpr v
-           let b1 = (Name n, v')
-           (b1 :) <$> parseBindings bs
-         parseBindings x = Left $ "could not parse bindings:" <> tshow x
   STTree (STBare "letrec":_) ->
     Left "bad letrec"
 
   STTree [a] -> treeToExpr a
   STTree [a1, a2] -> do
-    a1' <- treeToExpr a1
-    a2' <- treeToExpr a2
+    a1' <- parseTyped treeToExpr a1
+    a2' <- parseTyped treeToExpr a2
     return $ Call a1' a2'
   STTree (a1:a2:as) -> treeToExpr $ STTree $ STTree [a1, a2] : as
+ where
+  parseName = \case
+    STBare n -> return $ Name n
+    x -> Left $ "could not parse name: " <> tshow x
 
-treesToStmts :: [SyntaxTree] -> Either CompileError [Typed Stmt]
+  parseBindings [] = return []
+  parseBindings (STTree [name, v] : bs) = do
+    n <- parseTyped parseName name
+    v' <- parseTyped treeToExpr v
+    ((n, v') :) <$> parseBindings bs
+  parseBindings x = Left $ "could not parse bindings:" <> tshow x
+
+
+treesToStmts :: [SyntaxTree] -> Either CompileError [Stmt]
 treesToStmts = mapM (first CEMalformedExpr . treeToStmt)
 
 parsePType :: SyntaxTree -> Either Text (PType Ps)

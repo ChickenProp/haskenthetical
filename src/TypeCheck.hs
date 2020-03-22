@@ -134,36 +134,36 @@ infer expr = case expr of
 
   Lam x e -> do
     tv <- genSym
-    t <- extending x (Forall [] tv) (infer e)
+    t <- extending (rmType x) (Forall [] tv) (inferTyped e)
     return $ tv +-> t
 
-  Let [] e -> infer e
+  Let [] e -> inferTyped e
   Let ((n, e1):bs) e -> do
     env <- asks ieVars
-    (t1, constraints) <- listen $ infer e1
+    (t1, constraints) <- listen $ inferTyped e1
     subst <- liftEither $ solver1 constraints
     let gen = generalize env (apply subst t1)
-    t2 <- extending n gen (infer $ Let bs e)
+    t2 <- extending (rmType n) gen (infer $ Let bs e)
     return t2
 
   LetRec bindings e -> do
     env <- asks ieVars
     tvs <- forM bindings $ \_ -> genSym
     let tBindings = flip map (zip tvs bindings) $ \(tv, (n, _)) ->
-          (n, Forall [] tv)
+          (rmType n, Forall [] tv)
     (t1s, constraints) <- listen $ forM (zip tvs bindings)
       $ \(tv, (_, e1)) -> do
-        t1 <- local (field @"ieVars" %~ insertMany tBindings) (infer e1)
+        t1 <- local (field @"ieVars" %~ insertMany tBindings) (inferTyped e1)
         unify tv t1
         return t1
     subst <- liftEither $ solver1 constraints
     let gens = flip map (zip bindings t1s) $ \((n, _), t1) ->
-          (n, generalize env (apply subst t1))
-    seq gens $ local (field @"ieVars" %~ insertMany gens) $ infer e
+          (rmType n, generalize env (apply subst t1))
+    seq gens $ local (field @"ieVars" %~ insertMany gens) $ inferTyped e
 
   Call fun a -> do
-    t1 <- infer fun
-    t2 <- infer a
+    t1 <- inferTyped fun
+    t2 <- inferTyped a
     tv <- genSym
     unify t1 (t2 +-> tv)
     return tv

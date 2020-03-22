@@ -18,7 +18,7 @@ typeCheck program = do
    trees <- first tshow $ parseWholeFile "<str>" program
    stmts <- first tshow $ treesToStmts trees
 
-   let decls = flip mapMaybe (rmType <$> stmts) $ \case
+   let decls = flip mapMaybe stmts $ \case
          TypeDecl d -> Just d
          _ -> Nothing
    newEnv <- first tshow $ declareTypes decls defaultEnv
@@ -31,7 +31,7 @@ runEval program = do
    trees <- first tshow $ parseWholeFile "<str>" program
    stmts <- first tshow $ treesToStmts trees
 
-   let decls = flip mapMaybe (rmType <$> stmts) $ \case
+   let decls = flip mapMaybe stmts $ \case
          TypeDecl d -> Just d
          _ -> Nothing
    newEnv <- first tshow $ declareTypes decls defaultEnv

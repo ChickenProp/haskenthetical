@@ -169,7 +169,12 @@ declareTypeEliminator (TypeDecl' { tdName, tdVars, tdConstructors }) env = do
 
   applyConElim :: Val -> [Val] -> Either Text Val
   applyConElim f vals =
-    Right $ Thunk (Env Map.empty) $ foldl' Call (Val f) (Val <$> vals)
+    Right
+      $ Thunk (Env Map.empty)
+      $ rmType
+      $ foldl' (\e1 e2 -> UnTyped $ Call e1 e2)
+               (UnTyped $ Val f)
+               (UnTyped . Val <$> vals)
 
   typeElimVal :: Val
   typeElimVal = go [] 0 (fst <$> tdConstructors)

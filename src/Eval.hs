@@ -13,15 +13,15 @@ isExpr = \case
   Def _ _ -> False
   TypeDecl _ -> False
 
-def2let :: [Typed Stmt] -> Either Text (Typed Expr)
-def2let exprs = go [] $ sortOn (isExpr . snd) $ map extractType exprs
+def2let :: [Stmt] -> Either Text (Typed Expr)
+def2let exprs = go [] $ sortOn isExpr exprs
  where
   go pairs = \case
    [] -> Left "need at least one expr"
-   [(t, Expr e)] -> Right $ mkTyped t $ LetRec pairs e
-   (_, Expr _) : e -> Left $ "can only have one expr" <> tshow exprs
-   (_, Def n1 e1) : e -> go ((n1, e1):pairs) e
-   (_, TypeDecl _) : e -> go pairs e
+   [Expr e] -> let (t, _) = extractType e in Right $ mkTyped t $ LetRec pairs e
+   (Expr _) : _ -> Left $ "can only have one expr" <> tshow exprs
+   (Def n1 e1) : e -> go ((UnTyped n1, UnTyped e1):pairs) e
+   (TypeDecl _) : e -> go pairs e
 
 eval1 :: Env -> Expr -> Either Text Val
 eval1 env@(Env syms) = elimThunk <=< \case
@@ -31,21 +31,22 @@ eval1 env@(Env syms) = elimThunk <=< \case
     Nothing -> Left $ "no such var: " <> tshow x
     Just v -> Right v
 
-  Let [] expr -> eval1 env expr
+  Let [] expr -> eval1 env (rmType expr)
   Let ((n, e):bs) expr -> do
-    v <- eval1 env e
-    eval1 (Env $ Map.insert n v syms) (Let bs expr)
+    v <- eval1 env (rmType e)
+    eval1 (Env $ Map.insert (rmType n) v syms) (Let bs expr)
 
   LetRec bindings expr -> do
-    let thunks = flip map bindings $ \(n, e) -> (n, Thunk newenv e)
+    let thunks = flip map bindings $
+          \(n, e) -> (rmType n, Thunk newenv (rmType e))
         newenv = Env $ Map.union (Map.fromList thunks) syms
-    eval1 newenv expr
+    eval1 newenv (rmType expr)
 
-  Lam name expr -> Right $ Clos env name expr
+  Lam name expr -> Right $ Clos env (rmType name) (rmType expr)
 
   Call f arg -> do
-    vf <- eval1 env f
-    varg <- eval1 env arg
+    vf <- eval1 env (rmType f)
+    varg <- eval1 env (rmType arg)
     call vf varg
  where
   elimThunk :: Val -> Either Text Val

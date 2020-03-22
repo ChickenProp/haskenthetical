@@ -130,14 +130,13 @@ instance Gist Val where
     Clos _ _ _ -> gist ("Clos" :: Text)
     Tag (Name n) vals -> TD.App (Text.unpack n) (map gist vals)
 
-
 data Expr
   = Val Val
   | Var Name
-  | Let [(Name, Expr)] Expr
-  | LetRec [(Name, Expr)] Expr
-  | Lam Name Expr
-  | Call Expr Expr
+  | Let [(Typed Name, Typed Expr)] (Typed Expr)
+  | LetRec  [(Typed Name, Typed Expr)] (Typed Expr)
+  | Lam (Typed Name) (Typed Expr)
+  | Call (Typed Expr) (Typed Expr)
   deriving (Eq, Show)
 
 instance Gist Expr where
@@ -150,7 +149,7 @@ instance Gist Expr where
     Call e1 e2 -> TD.App "Call" [gist e1, gist e2]
 
 data Stmt
-  = Expr Expr
+  = Expr (Typed Expr)
   | Def Name Expr
   | TypeDecl TypeDecl
   deriving (Eq, Show)

@@ -67,7 +67,7 @@ doCmdLine (CmdLine {..}) = runExceptT go >>= \case
    stmts <- liftEither $ first tshow $ treesToStmts trees
    when printExpr $ printGist stmts
 
-   let decls = flip mapMaybe (rmType <$> stmts) $ \case
+   let decls = flip mapMaybe stmts $ \case
          TypeDecl d -> Just d
          _ -> Nothing
    newEnv <- liftEither $ first tshow $ declareTypes decls defaultEnv
