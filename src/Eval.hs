@@ -20,7 +20,7 @@ def2let exprs = go [] $ sortOn isExpr exprs
    [] -> Left "need at least one expr"
    [Expr e] -> let (t, _) = extractType e in Right $ mkTyped t $ LetRec pairs e
    (Expr _) : _ -> Left $ "can only have one expr" <> tshow exprs
-   (Def n1 e1) : e -> go ((UnTyped n1, UnTyped e1):pairs) e
+   (Def n1 e1) : e -> go ((n1, e1):pairs) e
    (TypeDecl _) : e -> go pairs e
 
 eval1 :: Env -> Expr -> Either Text Val

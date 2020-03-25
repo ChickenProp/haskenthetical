@@ -83,9 +83,10 @@ parseWholeFile fName input =
 
 treeToStmt :: SyntaxTree -> Either Text Stmt
 treeToStmt = \case
-  STTree [STBare "def", STBare name, body] -> do
-    b <- treeToExpr body
-    return $ Def (Name name) b
+  STTree [STBare "def", name, body] -> do
+    n <- parseTyped parseName name
+    b <- parseTyped treeToExpr body
+    return $ Def n b
   STTree (STBare "def" : _) ->
     Left "bad Def"
 
@@ -122,6 +123,10 @@ parseTyped parseUntyped = \case
       Left "Bad type annotation"
   x -> UnTyped <$> parseUntyped x
 
+parseName :: SyntaxTree -> Either Text Name
+parseName = \case
+  STBare n -> return $ Name n
+  x -> Left $ "could not parse name: " <> tshow x
 
 treeToExpr :: SyntaxTree -> Either Text Expr
 treeToExpr = \case
@@ -165,10 +170,6 @@ treeToExpr = \case
     return $ Call a1' a2'
   STTree (a1:a2:as) -> treeToExpr $ STTree $ STTree [a1, a2] : as
  where
-  parseName = \case
-    STBare n -> return $ Name n
-    x -> Left $ "could not parse name: " <> tshow x
-
   parseBindings [] = return []
   parseBindings (STTree [name, v] : bs) = do
     n <- parseTyped parseName name

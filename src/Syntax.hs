@@ -150,7 +150,7 @@ instance Gist Expr where
 
 data Stmt
   = Expr (Typed Expr)
-  | Def Name Expr
+  | Def (Typed Name) (Typed Expr)
   | TypeDecl TypeDecl
   deriving (Eq, Show)
 

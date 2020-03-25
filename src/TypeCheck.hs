@@ -73,6 +73,9 @@ instance Substitutable v => Substitutable (Map k v) where
 -- have a type variable `e` and we know it unifies with `Float`. We'll
 -- generalize `e` to `Forall [e] e`, and then that won't unify with `Float`. By
 -- running the solver, we instead generalize `Float` to `Forall [] Float`.
+--
+-- (Of course, we also need to make sure the solver *knows* about this
+-- unification. Meaning we need to do it inside of a `listen`, not outside.)
 
 runTypeCheck :: InferEnv -> Typed Expr -> Either CompileError (PType Tc)
 runTypeCheck env expr = do
@@ -115,11 +118,15 @@ lookupVar n = do
 unify :: MType Tc -> MType Tc -> Infer ()
 unify t1 t2 = tell [(t1, t2)]
 
+ps2tc_Infer :: PType Ps -> Infer (PType Tc)
+ps2tc_Infer t = do
+  env <- asks ieTypes
+  lift $ ps2tc_PType (Forall [] <$> env) t
+
 inferTyped :: Typed Expr -> Infer (MType Tc)
 inferTyped (UnTyped e) = infer e
 inferTyped (Typed t e) = do
-  env <- asks ieTypes
-  t' <- instantiate =<< lift (ps2tc_PType (Forall [] <$> env) t)
+  t' <- instantiate =<< ps2tc_Infer t
   e' <- infer e
   unify t' e'
   return t'
@@ -138,26 +145,41 @@ infer expr = case expr of
     return $ tv +-> t
 
   Let [] e -> inferTyped e
-  Let ((n, e1):bs) e -> do
+  Let (b1:bs) e -> do
     env <- asks ieVars
-    (t1, constraints) <- listen $ inferTyped e1
+
+    let (extractType -> (declaredType, bindingName), boundExpr) = b1
+    (inferredType, constraints) <- listen $ do
+      inferredType <- inferTyped boundExpr
+      whenJust declaredType $ \t ->
+        unify inferredType =<< (instantiate =<< ps2tc_Infer t)
+      return inferredType
+
     subst <- liftEither $ solver1 constraints
-    let gen = generalize env (apply subst t1)
-    t2 <- extending (rmType n) gen (infer $ Let bs e)
-    return t2
+    let gen = generalize env (apply subst inferredType)
+    extending bindingName gen (infer $ Let bs e)
 
   LetRec bindings e -> do
     env <- asks ieVars
-    tvs <- forM bindings $ \_ -> genSym
-    let tBindings = flip map (zip tvs bindings) $ \(tv, (n, _)) ->
+
+    -- Every binding gets a unique genSym, which we unify with its declared type
+    -- if any. For each expr, we infer its type given that the other names have
+    -- those genSyms. Then we unify its inferred type with its own genSym.
+
+    genSyms <- forM bindings $ \_ -> genSym
+
+    let tBindings = flip map (zip genSyms bindings) $ \(tv, (n, _)) ->
           (rmType n, Forall [] tv)
-    (t1s, constraints) <- listen $ forM (zip tvs bindings)
-      $ \(tv, (_, e1)) -> do
+    (inferredTypes, constraints) <- listen $ forM (zip genSyms bindings)
+      $ \(tv, (n1, e1)) -> do
         t1 <- local (field @"ieVars" %~ insertMany tBindings) (inferTyped e1)
         unify tv t1
+        whenJust (fst $ extractType n1) $ \t1' ->
+          unify tv =<< instantiate =<< ps2tc_Infer t1'
         return t1
+
     subst <- liftEither $ solver1 constraints
-    let gens = flip map (zip bindings t1s) $ \((n, _), t1) ->
+    let gens = flip map (zip bindings inferredTypes) $ \((n, _), t1) ->
           (rmType n, generalize env (apply subst t1))
     seq gens $ local (field @"ieVars" %~ insertMany gens) $ inferTyped e
 

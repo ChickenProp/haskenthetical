@@ -6,6 +6,7 @@ where
 
 import Control.Lens as Export ((^.), (.~), (%~), (&))
 import Control.Monad as Export ((<=<), (>=>), foldM, forM, void, when)
+import Control.Monad.Extra as Export (whenJust)
 import Control.Monad.Trans as Export (liftIO)
 import Data.Bifunctor as Export (first, second)
 import Data.Either as Export (isLeft)

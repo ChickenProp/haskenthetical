@@ -21,6 +21,7 @@ description:         Please see the README on GitHub at <https://github.com/gith
 
 default-extensions:
 - ApplicativeDo
+- BangPatterns
 - DataKinds
 - DefaultSignatures
 - DeriveGeneric
@@ -38,10 +39,12 @@ default-extensions:
 - TypeApplications
 - TypeFamilies
 - TypeSynonymInstances
+- ViewPatterns
 
 dependencies:
 - base >= 4.7 && < 5
 - containers
+- extra
 - generic-lens
 - interpolatedstring-perl6
 - lens

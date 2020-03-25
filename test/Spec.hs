@@ -96,6 +96,83 @@ main = hspec $ do
       [q|(: Float "foo")|] `tcFailsWith` "CEUnificationFail"
       "(: (, Float) 3)" `tcFailsWith` "CEKindMismatch"
 
+    it "Allows declaring types as not their most general possibility" $ do
+      [q|(def (: (-> Float Float) id-Float) (λ x x))
+         (id-Float "blah")
+        |] `tcFailsWith` "CEUnificationFail"
+
+      [q|(def id-Float (: (-> Float Float) (λ x x)))
+         (id-Float "blah")
+        |] `tcFailsWith` "CEUnificationFail"
+
+      [q|(let ((id (λ x x))
+               ((: (-> Float Float) id-Float) id))
+           (, (id "blah") (, (id 3) (id-Float 3))))
+        |] `hasType` Forall [] (tString +:* (tFloat +:* tFloat))
+
+      [q|(let ((id (λ x x))
+               (id-Float (: (-> Float Float) id)))
+           (, (id "blah") (, (id 3) (id-Float 3))))
+        |] `hasType` Forall [] (tString +:* (tFloat +:* tFloat))
+
+      [q|(let (((: (-> Float Float) id-Float) (λ x x)))
+           (id-Float "blah"))
+        |] `tcFailsWith` "CEUnificationFail"
+
+      [q|(let ((id-Float (: (-> Float Float) (λ x x))))
+           (id-Float "blah"))
+        |] `tcFailsWith` "CEUnificationFail"
+
+    it "Calculates minimally recursive binding groups" $ do
+      -- This is necessary because, when typechecking `(letrec ((n a)) e)`, `n`
+      -- is only available as a monotype when evaluating `a`. Or as "Typing
+      -- Haskell in Haskell" puts it, we need to
+      --
+      -- > ensure that each variable is used with the same type at every
+      -- > occurrence within the defining list of bindings. (Lifting this
+      -- > restriction makes type inference undecidable (Henglein, 1993; Kfoury
+      -- > et al., 1993).)
+      --
+      -- http://web.cecs.pdx.edu/~mpj/thih/thih.pdf (p. 33)
+      --
+      -- We can demonstrate the need for this in Haskell as well, by introducing
+      -- a mutual dependency into the group:
+      --
+      -- (1)    let a1 x = x
+      --            a2 = (a1 :: Float -> Float) }
+      --        in a1 ""
+      -- (2)    let a1 x = const x (a2 3)
+      --            a2 = (a1 :: Float -> Float)
+      --        in a1 ""
+      -- (3)    let a1 :: a -> a
+      --            a1 x = const x (a2 3)
+      --            a2 = (a1 :: Float -> Float)
+      --        in a1 ""
+      -- (4)    let a1 x = const x (a2 3)
+      --            a2 :: Float -> Float
+      --            a2 = a1
+      --        in a1 ""
+      --
+      -- (1) typechecks, because we calculate the type of `a1` without looking
+      -- at `a2`. But (2) doesn't, because we can't do that. Thus, a1 is given
+      -- the monotype `Float -> Float` which doesn't generalize very far. (3)
+      -- and (4) typecheck because bindings with explicit type declarations can
+      -- be placed in a separate dependency group.
+      --
+      -- (Not sure I'm going to implement this any time soon.)
+      pendingWith "Not yet implemented"
+
+      [q|(def id (λ x x))
+         (def (: (-> Float Float) id-Float) id)
+         (, (id "blah") (, (id 3) (id-Float 3)))
+        |] `hasType` Forall [] (tString +:* (tFloat +:* tFloat))
+
+      [q|(def id (λ x x))
+         (def id-Float (: (-> Float Float) id))
+         (, (id "blah") (, (id 3) (id-Float 3)))
+        |] `hasType` Forall [] (tString +:* (tFloat +:* tFloat))
+
+
   describe "Evaluation" $ do
     let returns :: String -> Val -> Expectation
         prog `returns` v = runEval prog `shouldBe` Right v
