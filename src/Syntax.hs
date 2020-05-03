@@ -5,6 +5,7 @@ module Syntax
   , Env(..)
   , Stmt(..)
   , Expr(..)
+  , Pattern(..)
   , Val(..)
   , Builtin(..)
   , Typed(..)
@@ -130,13 +131,24 @@ instance Gist Val where
     Clos _ _ _ -> gist ("Clos" :: Text)
     Tag (Name n) vals -> TD.App (Text.unpack n) (map gist vals)
 
+data Pattern
+  = PatConstr Name [Pattern]
+  | PatVal Name
+  deriving (Eq, Show)
+
+instance Gist Pattern where
+  gist = \case
+    PatConstr n ps -> TD.App "PatConstr" [gist n, gist ps]
+    PatVal n -> TD.App "PatVal" [gist n]
+
 data Expr
   = Val Val
   | Var Name
   | Let [(Typed Name, Typed Expr)] (Typed Expr)
-  | LetRec  [(Typed Name, Typed Expr)] (Typed Expr)
+  | LetRec [(Typed Name, Typed Expr)] (Typed Expr)
   | Lam (Typed Name) (Typed Expr)
   | Call (Typed Expr) (Typed Expr)
+  | IfMatch (Typed Expr) Pattern (Typed Expr) (Typed Expr)
   deriving (Eq, Show)
 
 instance Gist Expr where
@@ -147,6 +159,7 @@ instance Gist Expr where
     LetRec bindings expr -> TD.App "LetRec" [gist bindings, gist expr]
     Lam n expr -> TD.App "Lam" [gist n, gist expr]
     Call e1 e2 -> TD.App "Call" [gist e1, gist e2]
+    IfMatch i pat e1 e2 -> TD.App "IfMatch" [gist i, gist pat, gist e1, gist e2]
 
 data Stmt
   = Expr (Typed Expr)

@@ -78,6 +78,15 @@ main = hspec $ do
       [q|(let ((f (λ x (, x x)))) (, (f 3) (f "")))|]
         `hasType` Forall [] ((tFloat +:* tFloat) +:* (tString +:* tString))
 
+    it "accepts unused function arguments" $ do
+      [q|(def const3 (λ x 3))
+         (, (const3 "foo") (const3 4))
+        |] `hasType` Forall [] (tFloat +:* tFloat)
+
+      [q|(def const (λ (x y) x))
+         (, (const 3 "foo") (const 3 4))
+        |] `hasType` Forall [] (tFloat +:* tFloat)
+
     it "accepts typed constants" $ do
       "(: Float 3)" `hasType` Forall [] tFloat
       [q|(: String "foo")|] `hasType` Forall [] tString
@@ -95,6 +104,24 @@ main = hspec $ do
       "(: String 3)" `tcFailsWith` "CEUnificationFail"
       [q|(: Float "foo")|] `tcFailsWith` "CEUnificationFail"
       "(: (, Float) 3)" `tcFailsWith` "CEKindMismatch"
+
+    it "rejects incorrectly typed pattern bindings" $ do
+      [q|(type (Maybe $a) Nothing (Just $a))
+         (if~ 3 Nothing 1 0)
+        |] `tcFailsWith` "CEUnificationFail"
+
+    it "rejects pattern matching on incomplete constructors" $ do
+      pendingWith "Not yet implemented."
+      [q|(type (Maybe $a) Nothing (Just $a))
+         (if~ Just Just 1 0)
+        |] `tcFailsWith` "Something"
+
+    it "rejects pattern matching on non-constructors" $ do
+      pendingWith "Not yet implemented."
+      [q|(type (Maybe $a) Nothing (Just $a))
+         (def my-nothing Nothing)
+         (if~ Nothing my-nothing 1 0)
+        |] `tcFailsWith` "Something"
 
     it "Allows declaring types as not their most general possibility" $ do
       [q|(def (: (-> Float Float) id-Float) (λ x x))
@@ -211,6 +238,48 @@ main = hspec $ do
          (def g (λ x (f (Left x))))
          (f (Right 3))|]
         `returns` Float 3
+
+    it "if~" $ do
+      "(if~ 3 $v (+ v 1) 0)" `returns` Float 4
+
+      [q|(type (Maybe $a) Nothing (Just $a))
+         (if~ Nothing Nothing 1 0)
+        |] `returns` Float 1
+
+      [q|(type (Maybe $a) Nothing (Just $a))
+         (if~ (Just 3) Nothing 1 0)
+        |] `returns` Float 0
+
+      [q|(type (Maybe $a) Nothing (Just $a))
+         (if~ Nothing (Just $x) x 0)
+        |] `returns` Float 0
+
+      [q|(type (Maybe $a) Nothing (Just $a))
+         (if~ (Just 3) (Just $x) x 0)
+        |] `returns` Float 3
+
+      [q|(type (Maybe $a) Nothing (Just $a))
+         (type (List $a) Nil (Cons $a (List $a)))
+         (if~ (Just Nil) (Just Nil) 1 0)
+        |] `returns` Float 1
+
+      [q|(type (Maybe $a) Nothing (Just $a))
+         (type (List $a) Nil (Cons $a (List $a)))
+         (if~ (Just (Cons 3 Nil)) (Just Nil) 1 0)
+        |] `returns` Float 0
+
+      [q|(type (Maybe $a) Nothing (Just $a))
+         (type (List $a) Nil (Cons $a (List $a)))
+         (if~ (Just Nil) (Just (Cons $hd $tl)) (, hd tl) (, 0 Nil))
+        |] `returns` Tag "," [Float 0, Tag "Nil" []]
+
+      [q|(type (Maybe $a) Nothing (Just $a))
+         (type (List $a) Nil (Cons $a (List $a)))
+         (if~ (Just (Cons 3 Nil)) (Just (Cons $hd $tl)) (, hd tl) (, 0 Nil))
+        |] `returns` Tag "," [Float 3, Tag "Nil" []]
+
+      [q|(if~ (, 3 "foo") (, $a $b) (, b a) (, "x" 0))
+        |] `returns` Tag "," [String "foo", Float 3]
 
   describe "Type declaration" $ do
     let failsWith :: String -> String -> Expectation

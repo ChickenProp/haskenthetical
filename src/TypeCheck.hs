@@ -190,6 +190,34 @@ infer expr = case expr of
     unify t1 (t2 +-> tv)
     return tv
 
+  IfMatch inE pat thenE elseE -> do
+    inT <- inferTyped inE
+    (patT, patBindings) <- inferPat pat
+    thenT <- local (field @"ieVars" %~ insertMany patBindings)
+                   (inferTyped thenE)
+    elseT <- inferTyped elseE
+    unify inT patT
+    unify thenT elseT
+    return thenT
+
+inferPat :: Pattern -> Infer (MType Tc, [(Name, PType Tc)])
+inferPat = \case
+  PatVal n -> do
+    t <- genSym
+    return (t, [(n, Forall [] t)])
+  PatConstr conName pats -> do
+    (pTypes, bindings) <- unzip <$> traverse inferPat pats
+    t <- genSym
+
+    env <- asks ieVars
+    case env !? conName of
+      Nothing -> lift $ Left $ CEUnboundVar conName
+      Just conPType -> do
+        conMType <- instantiate conPType
+        unify conMType $ foldr (+->) t pTypes
+
+    return (t, concat bindings)
+
 ---
 
 type Unifier = (Subst, [Constraint])

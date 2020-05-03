@@ -48,10 +48,25 @@ eval1 env@(Env syms) = elimThunk <=< \case
     vf <- eval1 env (rmType f)
     varg <- eval1 env (rmType arg)
     call vf varg
+
+  IfMatch inE pat thenE elseE -> do
+    inV <- eval1 env (rmType inE)
+    case patternMatch pat inV of
+      Nothing -> eval1 env (rmType elseE)
+      Just bindings -> eval1 (Env $ Map.union (Map.fromList bindings) syms) (rmType thenE)
  where
   elimThunk :: Val -> Either Text Val
   elimThunk (Thunk newenv e) = elimThunk =<< eval1 newenv e
   elimThunk x = Right x
+
+patternMatch :: Pattern -> Val -> Maybe [(Name, Val)]
+patternMatch pat val = case pat of
+  PatVal n -> Just [(n, val)]
+  PatConstr conName pats -> case val of
+    Tag tName vals
+      | tName == conName && length vals == length pats
+      -> fmap concat $ sequence $ zipWith patternMatch pats vals
+    _ -> Nothing
 
 call :: Val -> Val -> Either Text Val
 call (Builtin (Builtin' _ b)) a = b a

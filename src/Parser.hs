@@ -163,6 +163,13 @@ treeToExpr = \case
   STTree (STBare "letrec":_) ->
     Left "bad letrec"
 
+  STTree [STBare "if~", inTree, pattern, thenTree, elseTree] -> do
+    i <- parseTyped treeToExpr inTree
+    p <- parsePattern pattern
+    t <- parseTyped treeToExpr thenTree
+    e <- parseTyped treeToExpr elseTree
+    return $ IfMatch i p t e
+
   STTree [a] -> treeToExpr a
   STTree [a1, a2] -> do
     a1' <- parseTyped treeToExpr a1
@@ -180,6 +187,20 @@ treeToExpr = \case
 
 treesToStmts :: [SyntaxTree] -> Either CompileError [Stmt]
 treesToStmts = mapM (first CEMalformedExpr . treeToStmt)
+
+parsePattern :: SyntaxTree -> Either Text Pattern
+parsePattern = \case
+  STBare n -> return $ case Text.stripPrefix "$" n of
+    Just n' -> PatVal $ Name n'
+    Nothing -> PatConstr (Name n) []
+  STFloat _ -> Left "Cannot put a Float in a pattern"
+  STString _ -> Left "Cannot put a String in a pattern"
+  STTree [] -> Left "Empty pattern"
+  STTree (x:xs) -> parsePattern x >>= \case
+    PatVal _ -> Left "Cannot have a var at the head of a pattern"
+    PatConstr n ys -> do
+      xs' <- traverse parsePattern xs
+      return $ PatConstr n (ys ++ xs')
 
 parsePType :: SyntaxTree -> Either Text (PType Ps)
 parsePType tree = Forall [] <$> parseMType tree
