@@ -59,8 +59,12 @@ eval1 env@(Env syms) = elimThunk <=< \case
   elimThunk (Thunk newenv e) = elimThunk =<< eval1 newenv e
   elimThunk x = Right x
 
+-- | If `val` matches `pat`, return Just a list of bound variables.
 patternMatch :: Pattern -> Val -> Maybe [(Name, Val)]
 patternMatch pat val = case pat of
+  PatLiteral l -> case val of
+    Literal l' | l == l' -> Just []
+    _ -> Nothing
   PatVal n -> Just [(n, val)]
   PatConstr conName pats -> case val of
     Tag tName vals

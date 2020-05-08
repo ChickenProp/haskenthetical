@@ -7,6 +7,7 @@ module Syntax
   , Expr(..)
   , Pattern(..)
   , Val(..)
+  , Literal(..)
   , Builtin(..)
   , Typed(..)
   , TypeDecl(..)
@@ -113,9 +114,18 @@ instance Gist TypeDecl where
   gist (TypeDecl' {..}) =
     TD.App "TypeDecl" [gist tdName, gist tdVars, gist tdConstructors]
 
-data Val
+data Literal
   = Float Double
   | String Text
+  deriving (Eq, Show)
+
+instance Gist Literal where
+  gist = \case
+    Float n -> gist n
+    String s -> gist s
+
+data Val
+  = Literal Literal
   | Builtin Builtin
   | Thunk Env Expr
   | Clos Env Name Expr
@@ -124,8 +134,7 @@ data Val
 
 instance Gist Val where
   gist = \case
-    Float n -> gist n
-    String t -> gist t
+    Literal l -> gist l
     Builtin (Builtin' n _) -> gist $ "<" <> n <> ">"
     Thunk env expr -> TD.App "Thunk" [gist env, gist expr]
     Clos _ _ _ -> gist ("Clos" :: Text)
@@ -134,7 +143,8 @@ instance Gist Val where
 data Pattern
   = PatConstr Name [Typed Pattern]
   | PatVal Name
-  -- ^ not Typed because the parser couldn't distinguish
+  | PatLiteral Literal
+  -- PatVal and PatLit aren't Typed because the parser couldn't distinguish
   --     Typed t $ PatVal $ UnTyped n
   --     UnTyped $ PatVal $ Typed t n
   deriving (Eq, Show)
@@ -143,6 +153,7 @@ instance Gist Pattern where
   gist = \case
     PatConstr n ps -> TD.App "PatConstr" [gist n, gist ps]
     PatVal n -> TD.App "PatVal" [gist n]
+    PatLiteral l -> TD.App "PatLiteral" [gist l]
 
 data Expr
   = Val Val

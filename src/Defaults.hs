@@ -11,20 +11,20 @@ rbb :: Name -> (Val -> Either Text Val) -> Either Text Val
 rbb name func = Right $ Builtin $ Builtin' name func
 
 hplus :: Val -> Either Text Val
-hplus (Float a) = rbb "+.1" $ \case
-  Float b -> Right $ Float (a + b)
+hplus (Literal (Float a)) = rbb "+.1" $ \case
+  Literal (Float b) -> Right $ Literal $ Float (a + b)
   _ -> Left "+ only accepts floats"
 hplus _ = Left "+ only accepts floats"
 
 hminus :: Val -> Either Text Val
-hminus (Float a) = rbb "-.1" $ \case
-  Float b -> Right $ Float (a - b)
+hminus (Literal (Float a)) = rbb "-.1" $ \case
+  Literal (Float b) -> Right $ Literal $ Float (a - b)
   _ -> Left "- only accepts floats"
 hminus _ = Left "- only accepts floats"
 
 htimes :: Val -> Either Text Val
-htimes (Float a) = rbb "*.1" $ \case
-  Float b -> Right $ Float (a * b)
+htimes (Literal (Float a)) = rbb "*.1" $ \case
+  Literal (Float b) -> Right $ Literal $ Float (a * b)
   _ -> Left "* only accepts floats"
 htimes _ = Left "* only accepts floats"
 
@@ -50,7 +50,7 @@ heither = mkBuiltinUnsafe $ do
     _ -> Left "final argument of either must be an Either"
 
 hif0 :: Val -> Either Text Val
-hif0 (Float v) = mkBuiltin $ do
+hif0 (Literal (Float v)) = mkBuiltin $ do
   then_ <- getArg "if0.1"
   else_ <- getArg "if0.2"
   pure $ Right $ if v == 0 then then_ else else_

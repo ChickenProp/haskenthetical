@@ -137,10 +137,14 @@ inferTyped = inferTypedOn id
 inferTypedExpr :: Typed Expr -> Infer (MType Tc)
 inferTypedExpr = inferTyped inferExpr
 
+inferLiteral :: Literal -> Infer (MType Tc)
+inferLiteral = return . \case
+    Float _ -> tFloat
+    String _ -> tString
+
 inferExpr :: Expr -> Infer (MType Tc)
 inferExpr expr = case expr of
-  Val (Float _) -> return tFloat
-  Val (String _) -> return tString
+  Val (Literal l) -> inferLiteral l
   Val v -> error $ "unexpected Val during typechecking: " ++ show v
 
   Var n -> lookupVar n
@@ -211,6 +215,7 @@ inferExpr expr = case expr of
 
 inferPat :: Pattern -> Infer (MType Tc, [(Name, PType Tc)])
 inferPat = \case
+  PatLiteral l -> (, []) <$> inferLiteral l
   PatVal n -> do
     t <- genSym
     return (t, [(n, Forall [] t)])

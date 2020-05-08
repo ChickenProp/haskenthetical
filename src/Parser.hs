@@ -130,8 +130,8 @@ parseName = \case
 
 treeToExpr :: SyntaxTree -> Either Text Expr
 treeToExpr = \case
-  STString s -> return $ Val (String s)
-  STFloat f -> return $ Val (Float f)
+  STString s -> return $ Val (Literal $ String s)
+  STFloat f -> return $ Val (Literal $ Float f)
   STBare b -> return $ Var (Name b)
 
   STTree [] -> Left "() is not currently a thing"
@@ -193,10 +193,11 @@ parsePattern = \case
   STBare n -> return $ case Text.stripPrefix "$" n of
     Just n' -> PatVal $ Name n'
     Nothing -> PatConstr (Name n) []
-  STFloat _ -> Left "Cannot put a Float in a pattern"
-  STString _ -> Left "Cannot put a String in a pattern"
+  STFloat n -> return $ PatLiteral $ Float n
+  STString s -> return $ PatLiteral $ String s
   STTree [] -> Left "Empty pattern"
   STTree (x:xs) -> parsePattern x >>= \case
+    PatLiteral _ -> Left "Cannot have a literal at the head of a pattern"
     PatVal _ -> Left "Cannot have a var at the head of a pattern"
     PatConstr n ys -> do
       xs' <- traverse (parseTyped parsePattern) xs

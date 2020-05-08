@@ -42,6 +42,9 @@ runEval program = do
 
 main :: IO ()
 main = hspec $ do
+  let vFloat = Literal . Float
+      vString = Literal . String
+
   describe "Type checking" $ do
     let hasType :: String -> PType Tc -> Expectation
         prog `hasType` t = typeCheck prog `shouldBe` Right t
@@ -130,7 +133,19 @@ main = hspec $ do
         |] `hasType` Forall [] tFloat
 
       [q|(type (Maybe $a) Nothing (Just $a))
+         (if~ (Just 3) (Just (: Float 3)) 3 1)
+        |] `hasType` Forall [] tFloat
+
+      [q|(type (Maybe $a) Nothing (Just $a))
          (if~ (Just "foo") (Just (: Float $x)) 3 1)
+        |] `tcFailsWith` "CEUnificationFail"
+
+      [q|(type (Maybe $a) Nothing (Just $a))
+         (if~ (Just "foo") (Just (: Float 3)) 3 1)
+        |] `tcFailsWith` "CEUnificationFail"
+
+      [q|(type (Maybe $a) Nothing (Just $a))
+         (if~ (Just "foo") (Just (: Float "foo")) 3 1)
         |] `tcFailsWith` "CEUnificationFail"
 
     it "rejects incorrectly typed constants" $ do
@@ -238,81 +253,91 @@ main = hspec $ do
         prog `returns` v = runEval prog `shouldBe` Right v
 
     it "evals constants" $ do
-      "3" `returns` Float 3
-      [q|"foo"|] `returns` String "foo"
+      "3" `returns` vFloat 3
+      [q|"foo"|] `returns` vString "foo"
 
     it "performs arithmetic" $ do
-      "(+ 3 4)" `returns` Float 7
-      "(+ 3 (+ 4 5))" `returns` Float 12
-      "(+ (+ 3 4) 5)" `returns` Float 12
-      "(+ (+ 3.2 4.1) 5.3)" `returns` Float 12.6
-      "(- 3 4)" `returns` Float (-1)
-      "(* 7.2 3.1)" `returns` Float 22.32
+      "(+ 3 4)" `returns` vFloat 7
+      "(+ 3 (+ 4 5))" `returns` vFloat 12
+      "(+ (+ 3 4) 5)" `returns` vFloat 12
+      "(+ (+ 3.2 4.1) 5.3)" `returns` vFloat 12.6
+      "(- 3 4)" `returns` vFloat (-1)
+      "(* 7.2 3.1)" `returns` vFloat 22.32
 
     it "if0" $ do
-      [q|(if0 0 "foo" "bar")|] `returns` String "foo"
-      [q|(if0 1 "foo" "bar")|] `returns` String "bar"
+      [q|(if0 0 "foo" "bar")|] `returns` vString "foo"
+      [q|(if0 1 "foo" "bar")|] `returns` vString "bar"
 
     it "factorial" $ do
       -- if0 evaluates both branches, so we use thunks to stop infinite loops
       [q|(letrec ((fac (λ x ((if0 x (λ s 1) (λ s (* x (fac (- x 1))))) 1))))
-           (fac 3))|] `returns` Float 6
+           (fac 3))|] `returns` vFloat 6
       [q|(def fac (λ x ((if0 x (λ s 1) (λ s (* x (fac (- x 1))))) 1)))
-         (fac 3)|] `returns` Float 6
+         (fac 3)|] `returns` vFloat 6
 
     it "letrec" $ do
       [q|(letrec ((id (λ x x))
                   (f (either id g))
                   (g (λ x (f (Left x)))))
              (f (Right 3)))|]
-        `returns` Float 3
+        `returns` vFloat 3
       [q|(def id (λ x x))
          (def f (either id g))
          (def g (λ x (f (Left x))))
          (f (Right 3))|]
-        `returns` Float 3
+        `returns` vFloat 3
 
     it "if~" $ do
-      "(if~ 3 $v (+ v 1) 0)" `returns` Float 4
+      "(if~ 3 $v (+ v 1) 0)" `returns` vFloat 4
+      "(if~ 3 3 1 0)" `returns` vFloat 1
+      "(if~ 3 2 1 0)" `returns` vFloat 0
 
       [q|(type (Maybe $a) Nothing (Just $a))
          (if~ Nothing Nothing 1 0)
-        |] `returns` Float 1
+        |] `returns` vFloat 1
 
       [q|(type (Maybe $a) Nothing (Just $a))
          (if~ (Just 3) Nothing 1 0)
-        |] `returns` Float 0
+        |] `returns` vFloat 0
 
       [q|(type (Maybe $a) Nothing (Just $a))
          (if~ Nothing (Just $x) x 0)
-        |] `returns` Float 0
+        |] `returns` vFloat 0
 
       [q|(type (Maybe $a) Nothing (Just $a))
          (if~ (Just 3) (Just $x) x 0)
-        |] `returns` Float 3
+        |] `returns` vFloat 3
+
+      [q|(type (Maybe $a) Nothing (Just $a))
+         (if~ (Just 3) (Just 3) 1 0)
+        |] `returns` vFloat 1
+
+      [q|(type (Maybe $a) Nothing (Just $a))
+         (if~ (Just 3) (Just 2) 1 0)
+        |] `returns` vFloat 0
 
       [q|(type (Maybe $a) Nothing (Just $a))
          (type (List $a) Nil (Cons $a (List $a)))
          (if~ (Just Nil) (Just Nil) 1 0)
-        |] `returns` Float 1
+        |] `returns` vFloat 1
 
       [q|(type (Maybe $a) Nothing (Just $a))
          (type (List $a) Nil (Cons $a (List $a)))
          (if~ (Just (Cons 3 Nil)) (Just Nil) 1 0)
-        |] `returns` Float 0
+        |] `returns` vFloat 0
 
       [q|(type (Maybe $a) Nothing (Just $a))
          (type (List $a) Nil (Cons $a (List $a)))
          (if~ (Just Nil) (Just (Cons $hd $tl)) (, hd tl) (, 0 Nil))
-        |] `returns` Tag "," [Float 0, Tag "Nil" []]
+        |] `returns` Tag "," [vFloat 0, Tag "Nil" []]
 
       [q|(type (Maybe $a) Nothing (Just $a))
          (type (List $a) Nil (Cons $a (List $a)))
          (if~ (Just (Cons 3 Nil)) (Just (Cons $hd $tl)) (, hd tl) (, 0 Nil))
-        |] `returns` Tag "," [Float 3, Tag "Nil" []]
+        |] `returns` Tag "," [vFloat 3, Tag "Nil" []]
 
       [q|(if~ (, 3 "foo") (, $a $b) (, b a) (, "x" 0))
-        |] `returns` Tag "," [String "foo", Float 3]
+        |] `returns` Tag "," [vString "foo", vFloat 3]
 
   describe "Type declaration" $ do
     let failsWith :: String -> String -> Expectation
@@ -328,14 +353,14 @@ main = hspec $ do
         `returns` Tag "Bar" []
 
       [q|(type Maybe-Float Nothing (Just Float)) (if0 3 Nothing (Just 3))|]
-        `returns` Tag "Just" [Float 3]
+        `returns` Tag "Just" [vFloat 3]
 
       [q|(type Point (Point Float Float Float)) (Point 1 2 3)|]
-        `returns` Tag "Point" [Float 1, Float 2, Float 3]
+        `returns` Tag "Point" [vFloat 1, vFloat 2, vFloat 3]
 
     it "(mutually) recursive type declarations" $ do
       [q|(type List-Float Nil (Cons Float List-Float)) (Cons 3 Nil)|]
-        `returns` Tag "Cons" [Float 3, Tag "Nil" []]
+        `returns` Tag "Cons" [vFloat 3, Tag "Nil" []]
 
       [q|(type Foo (Foo Bar)) (type Bar X (Bar Foo)) (Bar (Foo (Bar (Foo X))))|]
         `returns` Tag "Bar" [Tag "Foo" [Tag "Bar" [Tag "Foo" [Tag "X" []]]]]
@@ -352,41 +377,42 @@ main = hspec $ do
         `returns` Tag "Nothing" []
 
       [q|(type (Maybe $a) Nothing (Just $a)) (Just 3)|]
-        `returns` Tag "Just" [Float 3]
+        `returns` Tag "Just" [vFloat 3]
 
       [q|(type (List $a) Nil (Cons $a (List $a))) (Cons 3 Nil)|]
-        `returns` Tag "Cons" [Float 3, Tag "Nil" []]
+        `returns` Tag "Cons" [vFloat 3, Tag "Nil" []]
 
       [q|(type (List $a) Nil (Cons $a (List $a))) (Cons 4 (Cons 3 Nil))|]
-        `returns` Tag "Cons" [Float 4, Tag "Cons" [Float 3, Tag "Nil" []]]
+        `returns` Tag "Cons" [vFloat 4, Tag "Cons" [vFloat 3, Tag "Nil" []]]
 
     it "allows constructors to not use all type variables" $ do
       [q|(type (E $l $r) (L $l) (R $r)) (, (L 3) (R "foo"))|]
-        `returns` Tag "," [Tag "L" [Float 3], Tag "R" [String "foo"]]
+        `returns` Tag "," [Tag "L" [vFloat 3], Tag "R" [vString "foo"]]
 
     it "forbids novel type variables in constructors" $ do
       [q|(type (Maybe $x) (Just $y)) (Just 3)|]
         `failsWith` "CEUnknownType"
 
     it "type eliminators" $ do
-      [q|(type Foo Bar) (elim-Foo 3 Bar)|] `returns` Float 3
-      [q|(type Foo (Bar Float)) (elim-Foo (λ x x) (Bar 3))|] `returns` Float 3
-      [q|(type (Foo $x) (Bar $x)) (elim-Foo (λ x x) (Bar 3))|] `returns` Float 3
+      [q|(type Foo Bar) (elim-Foo 3 Bar)|] `returns` vFloat 3
+      [q|(type Foo (Bar Float)) (elim-Foo (λ x x) (Bar 3))|] `returns` vFloat 3
+      [q|(type (Foo $x) (Bar $x)) (elim-Foo (λ x x) (Bar 3))
+        |] `returns` vFloat 3
       [q|(type (Foo $x) (Bar $x String))
          (elim-Foo (λ (x y) (, x y)) (Bar 3 "Blah"))
-        |] `returns` Tag "," [Float 3, String "Blah"]
+        |] `returns` Tag "," [vFloat 3, vString "Blah"]
 
-      [q|(type Foo Bar Baz) (elim-Foo 3 4 Bar)|] `returns` Float 3
-      [q|(type Foo Bar Baz) (elim-Foo 3 4 Baz)|] `returns` Float 4
+      [q|(type Foo Bar Baz) (elim-Foo 3 4 Bar)|] `returns` vFloat 3
+      [q|(type Foo Bar Baz) (elim-Foo 3 4 Baz)|] `returns` vFloat 4
       [q|(type (Maybe $a) Nothing (Just $a))
          (, (elim-Maybe (, 1 "blah") (, 2) Nothing)
             (elim-Maybe (, 1 "blah") (, 2) (Just "boop")))
-        |] `returns` Tag "," [ Tag "," [Float 1, String "blah"]
-                             , Tag "," [Float 2, String "boop"] ]
+        |] `returns` Tag "," [ Tag "," [vFloat 1, vString "blah"]
+                             , Tag "," [vFloat 2, vString "boop"] ]
       [q|(type (List $a) Nil (Cons $a (List $a)))
          (def sum (elim-List 0
                              (λ (n l) (+ n (sum l)))))
          (, (sum Nil)
             (, (sum (Cons 3 Nil))
                (sum (Cons 3 (Cons 5 Nil)))))
-        |] `returns` Tag "," [Float 0, Tag "," [Float 3, Float 8]]
+        |] `returns` Tag "," [vFloat 0, Tag "," [vFloat 3, vFloat 8]]
