@@ -49,13 +49,6 @@ heither = mkBuiltinUnsafe $ do
     Tag "Right" [v] -> call r v
     _ -> Left "final argument of either must be an Either"
 
-hif0 :: Val -> Either Text Val
-hif0 (Literal (Float v)) = mkBuiltin $ do
-  then_ <- getArg "if0.1"
-  else_ <- getArg "if0.2"
-  pure $ Right $ if v == 0 then then_ else else_
-hif0 _ = Left "first arg to if0 must be a Float"
-
 defaultVarEnv :: Map Name (PType Tc, Val)
 defaultVarEnv = fmap (\(x, y) -> (y, x)) $ Map.fromList
   [ "+" ~~ bb "+" hplus ~~ Forall [] (tFloat +-> tFloat +-> tFloat)
@@ -73,7 +66,6 @@ defaultVarEnv = fmap (\(x, y) -> (y, x)) $ Map.fromList
   , "either"
       ~~ heither
       ~~ Forall [a', b', c'] ((a +-> c) +-> (b +-> c) +-> (a +:+ b) +-> c)
-  , "if0" ~~ bb "if0" hif0  ~~ Forall [a'] (tFloat +-> a +-> a +-> a)
   ]
   where a' = TV HType "a"
         a = TVar a'

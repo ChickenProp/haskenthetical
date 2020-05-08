@@ -98,7 +98,7 @@ main = hspec $ do
       "(: (-> Float (-> Float Float)) +)"
         `hasType` Forall [] (tFloat +-> tFloat +-> tFloat)
       "(: (-> Float Float) (+ 1))" `hasType` Forall [] (tFloat +-> tFloat)
-      "(: (-> Float (+ Float Float)) (λ x (if0 x (Left 0) (Right 0))))"
+      "(: (-> Float (+ Float Float)) (λ x (if~ x 0 (Left 0) (Right 0))))"
         `hasType` Forall [] (tFloat +-> (tFloat +:+ tFloat))
       [q|(: (, Float String) (, 2 "bar"))|]
         `hasType` Forall [] (tFloat +:* tString)
@@ -264,15 +264,10 @@ main = hspec $ do
       "(- 3 4)" `returns` vFloat (-1)
       "(* 7.2 3.1)" `returns` vFloat 22.32
 
-    it "if0" $ do
-      [q|(if0 0 "foo" "bar")|] `returns` vString "foo"
-      [q|(if0 1 "foo" "bar")|] `returns` vString "bar"
-
     it "factorial" $ do
-      -- if0 evaluates both branches, so we use thunks to stop infinite loops
-      [q|(letrec ((fac (λ x ((if0 x (λ s 1) (λ s (* x (fac (- x 1))))) 1))))
+      [q|(letrec ((fac (λ x (if~ x 0 1 (* x (fac (- x 1)))))))
            (fac 3))|] `returns` vFloat 6
-      [q|(def fac (λ x ((if0 x (λ s 1) (λ s (* x (fac (- x 1))))) 1)))
+      [q|(def fac (λ x (if~ x 0 1 (* x (fac (- x 1))))))
          (fac 3)|] `returns` vFloat 6
 
     it "letrec" $ do
@@ -349,10 +344,10 @@ main = hspec $ do
         prog `returns` v = runEval prog `shouldBe` Right v
 
     it "simple type declaration" $ do
-      [q|(type Foo Bar Baz) (if0 0 Bar Baz)|]
+      [q|(type Foo Bar Baz) (if~ 0 0 Bar Baz)|]
         `returns` Tag "Bar" []
 
-      [q|(type Maybe-Float Nothing (Just Float)) (if0 3 Nothing (Just 3))|]
+      [q|(type Maybe-Float Nothing (Just Float)) (if~ 3 0 Nothing (Just 3))|]
         `returns` Tag "Just" [vFloat 3]
 
       [q|(type Point (Point Float Float Float)) (Point 1 2 3)|]
