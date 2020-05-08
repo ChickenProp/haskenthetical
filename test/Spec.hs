@@ -100,6 +100,39 @@ main = hspec $ do
       [q|(: (, Float String) (, 2 "bar"))|]
         `hasType` Forall [] (tFloat +:* tString)
 
+    it "accepts types in patterns" $ do
+      [q|(type (Maybe $a) Nothing (Just $a))
+         (if~ Nothing (: (Maybe Float) Nothing) 3 1)
+        |] `hasType` Forall [] tFloat
+
+      [q|(type (Maybe $a) Nothing (Just $a))
+         (if~ Nothing (: (Maybe String) Nothing) 3 1)
+        |] `hasType` Forall [] tFloat
+
+      [q|(type (Maybe $a) Nothing (Just $a))
+         (if~ (Just 3) (: (Maybe Float) Nothing) 3 1)
+        |] `hasType` Forall [] tFloat
+
+      [q|(type (Maybe $a) Nothing (Just $a))
+         (if~ (Just "foo") (: (Maybe Float) Nothing) 3 1)
+        |] `tcFailsWith` "CEUnificationFail"
+
+      [q|(type (Maybe $a) Nothing (Just $a))
+         (if~ Nothing (: (Maybe Float) (Just $x)) 3 1)
+        |] `hasType` Forall [] tFloat
+
+      [q|(type (Maybe $a) Nothing (Just $a))
+         (if~ Nothing (Just (: Float $x)) 3 1)
+        |] `hasType` Forall [] tFloat
+
+      [q|(type (Maybe $a) Nothing (Just $a))
+         (if~ (Just 3) (Just (: Float $x)) 3 1)
+        |] `hasType` Forall [] tFloat
+
+      [q|(type (Maybe $a) Nothing (Just $a))
+         (if~ (Just "foo") (Just (: Float $x)) 3 1)
+        |] `tcFailsWith` "CEUnificationFail"
+
     it "rejects incorrectly typed constants" $ do
       "(: String 3)" `tcFailsWith` "CEUnificationFail"
       [q|(: Float "foo")|] `tcFailsWith` "CEUnificationFail"

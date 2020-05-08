@@ -132,8 +132,11 @@ instance Gist Val where
     Tag (Name n) vals -> TD.App (Text.unpack n) (map gist vals)
 
 data Pattern
-  = PatConstr Name [Pattern]
+  = PatConstr Name [Typed Pattern]
   | PatVal Name
+  -- ^ not Typed because the parser couldn't distinguish
+  --     Typed t $ PatVal $ UnTyped n
+  --     UnTyped $ PatVal $ Typed t n
   deriving (Eq, Show)
 
 instance Gist Pattern where
@@ -148,7 +151,7 @@ data Expr
   | LetRec [(Typed Name, Typed Expr)] (Typed Expr)
   | Lam (Typed Name) (Typed Expr)
   | Call (Typed Expr) (Typed Expr)
-  | IfMatch (Typed Expr) Pattern (Typed Expr) (Typed Expr)
+  | IfMatch (Typed Expr) (Typed Pattern) (Typed Expr) (Typed Expr)
   deriving (Eq, Show)
 
 instance Gist Expr where

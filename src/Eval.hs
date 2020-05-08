@@ -51,7 +51,7 @@ eval1 env@(Env syms) = elimThunk <=< \case
 
   IfMatch inE pat thenE elseE -> do
     inV <- eval1 env (rmType inE)
-    case patternMatch pat inV of
+    case patternMatch (rmType pat) inV of
       Nothing -> eval1 env (rmType elseE)
       Just bindings -> eval1 (Env $ Map.union (Map.fromList bindings) syms) (rmType thenE)
  where
@@ -65,7 +65,7 @@ patternMatch pat val = case pat of
   PatConstr conName pats -> case val of
     Tag tName vals
       | tName == conName && length vals == length pats
-      -> fmap concat $ sequence $ zipWith patternMatch pats vals
+      -> fmap concat $ sequence $ zipWith (patternMatch . rmType) pats vals
     _ -> Nothing
 
 call :: Val -> Val -> Either Text Val

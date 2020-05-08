@@ -165,7 +165,7 @@ treeToExpr = \case
 
   STTree [STBare "if~", inTree, pattern, thenTree, elseTree] -> do
     i <- parseTyped treeToExpr inTree
-    p <- parsePattern pattern
+    p <- parseTyped parsePattern pattern
     t <- parseTyped treeToExpr thenTree
     e <- parseTyped treeToExpr elseTree
     return $ IfMatch i p t e
@@ -199,7 +199,7 @@ parsePattern = \case
   STTree (x:xs) -> parsePattern x >>= \case
     PatVal _ -> Left "Cannot have a var at the head of a pattern"
     PatConstr n ys -> do
-      xs' <- traverse parsePattern xs
+      xs' <- traverse (parseTyped parsePattern) xs
       return $ PatConstr n (ys ++ xs')
 
 parsePType :: SyntaxTree -> Either Text (PType Ps)

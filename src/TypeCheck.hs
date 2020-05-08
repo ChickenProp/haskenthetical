@@ -79,7 +79,7 @@ instance Substitutable v => Substitutable (Map k v) where
 
 runTypeCheck :: InferEnv -> Typed Expr -> Either CompileError (PType Tc)
 runTypeCheck env expr = do
-  (ty, _, constraints) <- runRWST (inferTyped expr) env (InferState letters)
+  (ty, _, constraints) <- runRWST (inferTypedExpr expr) env (InferState letters)
   subst <- solver1 constraints
   return $ generalize (ieVars env) $ apply subst ty
  where
@@ -123,16 +123,22 @@ ps2tc_Infer t = do
   env <- asks ieTypes
   lift $ ps2tc_PType (Forall [] <$> env) t
 
-inferTyped :: Typed Expr -> Infer (MType Tc)
-inferTyped (UnTyped e) = infer e
-inferTyped (Typed t e) = do
+inferTypedOn :: (b -> MType Tc) -> (a -> Infer b) -> Typed a -> Infer b
+inferTypedOn _ f (UnTyped e) = f e
+inferTypedOn getType f (Typed t e) = do
   t' <- instantiate =<< ps2tc_Infer t
-  e' <- infer e
-  unify t' e'
-  return t'
+  e' <- f e
+  unify t' (getType e')
+  return e'
 
-infer :: Expr -> Infer (MType Tc)
-infer expr = case expr of
+inferTyped :: (a -> Infer (MType Tc)) -> Typed a -> Infer (MType Tc)
+inferTyped = inferTypedOn id
+
+inferTypedExpr :: Typed Expr -> Infer (MType Tc)
+inferTypedExpr = inferTyped inferExpr
+
+inferExpr :: Expr -> Infer (MType Tc)
+inferExpr expr = case expr of
   Val (Float _) -> return tFloat
   Val (String _) -> return tString
   Val v -> error $ "unexpected Val during typechecking: " ++ show v
@@ -141,23 +147,23 @@ infer expr = case expr of
 
   Lam x e -> do
     tv <- genSym
-    t <- extending (rmType x) (Forall [] tv) (inferTyped e)
+    t <- extending (rmType x) (Forall [] tv) (inferTypedExpr e)
     return $ tv +-> t
 
-  Let [] e -> inferTyped e
+  Let [] e -> inferTypedExpr e
   Let (b1:bs) e -> do
     env <- asks ieVars
 
     let (extractType -> (declaredType, bindingName), boundExpr) = b1
     (inferredType, constraints) <- listen $ do
-      inferredType <- inferTyped boundExpr
+      inferredType <- inferTypedExpr boundExpr
       whenJust declaredType $ \t ->
-        unify inferredType =<< (instantiate =<< ps2tc_Infer t)
+        unify inferredType =<< instantiate =<< ps2tc_Infer t
       return inferredType
 
     subst <- liftEither $ solver1 constraints
     let gen = generalize env (apply subst inferredType)
-    extending bindingName gen (infer $ Let bs e)
+    extending bindingName gen (inferExpr $ Let bs e)
 
   LetRec bindings e -> do
     env <- asks ieVars
@@ -172,7 +178,8 @@ infer expr = case expr of
           (rmType n, Forall [] tv)
     (inferredTypes, constraints) <- listen $ forM (zip genSyms bindings)
       $ \(tv, (n1, e1)) -> do
-        t1 <- local (field @"ieVars" %~ insertMany tBindings) (inferTyped e1)
+        t1 <- local (field @"ieVars" %~ insertMany tBindings)
+                    (inferTypedExpr e1)
         unify tv t1
         whenJust (fst $ extractType n1) $ \t1' ->
           unify tv =<< instantiate =<< ps2tc_Infer t1'
@@ -181,23 +188,25 @@ infer expr = case expr of
     subst <- liftEither $ solver1 constraints
     let gens = flip map (zip bindings inferredTypes) $ \((n, _), t1) ->
           (rmType n, generalize env (apply subst t1))
-    seq gens $ local (field @"ieVars" %~ insertMany gens) $ inferTyped e
+    seq gens $ local (field @"ieVars" %~ insertMany gens) $ inferTypedExpr e
 
   Call fun a -> do
-    t1 <- inferTyped fun
-    t2 <- inferTyped a
+    t1 <- inferTypedExpr fun
+    t2 <- inferTypedExpr a
     tv <- genSym
     unify t1 (t2 +-> tv)
     return tv
 
   IfMatch inE pat thenE elseE -> do
-    inT <- inferTyped inE
-    (patT, patBindings) <- inferPat pat
+    inT <- inferTypedExpr inE
+    (patT, patBindings) <- inferTypedOn fst inferPat pat
     thenT <- local (field @"ieVars" %~ insertMany patBindings)
-                   (inferTyped thenE)
-    elseT <- inferTyped elseE
+                   (inferTypedExpr thenE)
+    elseT <- inferTypedExpr elseE
+
     unify inT patT
     unify thenT elseT
+
     return thenT
 
 inferPat :: Pattern -> Infer (MType Tc, [(Name, PType Tc)])
@@ -206,7 +215,7 @@ inferPat = \case
     t <- genSym
     return (t, [(n, Forall [] t)])
   PatConstr conName pats -> do
-    (pTypes, bindings) <- unzip <$> traverse inferPat pats
+    (pTypes, bindings) <- unzip <$> traverse (inferTypedOn fst inferPat) pats
     t <- genSym
 
     env <- asks ieVars
