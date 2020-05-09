@@ -252,6 +252,9 @@ main = hspec $ do
     let returns :: String -> Val -> Expectation
         prog `returns` v = runEval prog `shouldBe` Right v
 
+        failsWith :: String -> Text -> Expectation
+        prog `failsWith` e = runEval prog `shouldBe` Left e
+
     it "evals constants" $ do
       "3" `returns` vFloat 3
       [q|"foo"|] `returns` vString "foo"
@@ -331,8 +334,13 @@ main = hspec $ do
          (if~ (Just (Cons 3 Nil)) (Just (Cons $hd $tl)) (, hd tl) (, 0 Nil))
         |] `returns` Tag "," [vFloat 3, Tag "Nil" []]
 
-      [q|(if~ (, 3 "foo") (, $a $b) (, b a) (, "x" 0))
+      [q|(if~ (, 3 "foo") (, $a $b) (, b a) (error! "impossible"))
         |] `returns` Tag "," [vString "foo", vFloat 3]
+
+    it "error!" $ do
+      [q|(error! "foo")|] `failsWith` "foo"
+      [q|(if~ 0 0 1 (error! "foo"))|] `returns` vFloat 1
+      [q|(if~ 0 1 1 (error! "foo"))|] `failsWith` "foo"
 
   describe "Type declaration" $ do
     let failsWith :: String -> String -> Expectation

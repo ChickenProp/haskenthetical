@@ -49,6 +49,10 @@ heither = mkBuiltinUnsafe $ do
     Tag "Right" [v] -> call r v
     _ -> Left "final argument of either must be an Either"
 
+herror :: Val -> Either Text Val
+herror (Literal (String e)) = Left e
+herror _ = Left "error only accepts string arguments"
+
 defaultVarEnv :: Map Name (PType Tc, Val)
 defaultVarEnv = fmap (\(x, y) -> (y, x)) $ Map.fromList
   [ "+" ~~ bb "+" hplus ~~ Forall [] (tFloat +-> tFloat +-> tFloat)
@@ -66,6 +70,7 @@ defaultVarEnv = fmap (\(x, y) -> (y, x)) $ Map.fromList
   , "either"
       ~~ heither
       ~~ Forall [a', b', c'] ((a +-> c) +-> (b +-> c) +-> (a +:+ b) +-> c)
+  , "error!" ~~ bb "error!" herror ~~ Forall [a'] (tString +-> a)
   ]
   where a' = TV HType "a"
         a = TVar a'
