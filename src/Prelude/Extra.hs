@@ -4,6 +4,7 @@ module Prelude.Extra
   )
 where
 
+import Control.Applicative as Export ((<|>))
 import Control.Lens as Export ((^.), (.~), (%~), (&))
 import Control.Monad as Export ((<=<), (>=>), foldM, forM, void, when)
 import Control.Monad.Extra as Export (whenJust)

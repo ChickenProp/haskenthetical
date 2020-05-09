@@ -22,7 +22,7 @@ data CmdLine = CmdLine
   , printType :: Bool
   , verbose :: Bool
   , noExec :: Bool
-  , program :: String
+  , program :: Either String String
   }
 
 parser :: O.Parser CmdLine
@@ -33,9 +33,10 @@ parser = CmdLine
   <*> O.switch (O.long "print-type" <> O.help "Print the inferred type")
   <*> O.switch (O.long "verbose" <> O.short 'v' <> O.help "Print everything")
   <*> O.switch (O.long "no-exec" <> O.help "Don't execute the program")
-  <*> O.argument O.str (O.metavar "PROGRAM")
-
-
+  <*> (Left <$> O.strOption
+        (O.long "eval" <> O.short 'e' <> O.help "Evaluate from command line")
+      <|> Right <$> O.argument O.str (O.metavar "PROGRAM")
+      )
 
 main :: IO ()
 main = do
@@ -62,7 +63,10 @@ doCmdLine (CmdLine {..}) = runExceptT go >>= \case
  where
   printGist v = liftIO $ print $ prettyGist v <> "\n"
   go = do
-   trees <- liftEither $ first tshow $ parseWholeFile "<str>" program
+   (fName, src) <- case program of
+     Left s -> return ("<-e>", s)
+     Right s -> (s,) <$> liftIO (readFile s)
+   trees <- liftEither $ first tshow $ parseWholeFile fName src
    when printTree $ liftIO $ printer trees
    stmts <- liftEither $ first tshow $ treesToStmts trees
    when printExpr $ printGist stmts
