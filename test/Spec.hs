@@ -91,67 +91,68 @@ main = hspec $ do
         |] `hasType` Forall [] (tFloat +:* tFloat)
 
     it "accepts typed constants" $ do
-      "(: Float 3)" `hasType` Forall [] tFloat
-      [q|(: String "foo")|] `hasType` Forall [] tString
+      "(: 3 Float)" `hasType` Forall [] tFloat
+      [q|(: "foo" String)|] `hasType` Forall [] tString
 
     it "accepts typed expressions" $ do
-      "(: (-> Float (-> Float Float)) +)"
+      "(: + (-> Float (-> Float Float)))"
         `hasType` Forall [] (tFloat +-> tFloat +-> tFloat)
-      "(: (-> Float Float) (+ 1))" `hasType` Forall [] (tFloat +-> tFloat)
-      "(: (-> Float (+ Float Float)) (λ x (if~ x 0 (Left 0) (Right 0))))"
-        `hasType` Forall [] (tFloat +-> (tFloat +:+ tFloat))
-      [q|(: (, Float String) (, 2 "bar"))|]
+      "(: (+ 1) (-> Float Float))" `hasType` Forall [] (tFloat +-> tFloat)
+      [q|(: (λ x (if~ x 0 (Left 0) (Right 0)))
+            (-> Float (+ Float Float)))
+        |] `hasType` Forall [] (tFloat +-> (tFloat +:+ tFloat))
+      [q|(: (, 2 "bar") (, Float String))|]
         `hasType` Forall [] (tFloat +:* tString)
 
     it "accepts types in patterns" $ do
       [q|(type (Maybe $a) Nothing (Just $a))
-         (if~ Nothing (: (Maybe Float) Nothing) 3 1)
+         (if~ Nothing (: Nothing (Maybe Float)) 3 1)
         |] `hasType` Forall [] tFloat
 
       [q|(type (Maybe $a) Nothing (Just $a))
-         (if~ Nothing (: (Maybe String) Nothing) 3 1)
+         (if~ Nothing (: Nothing (Maybe String)) 3 1)
         |] `hasType` Forall [] tFloat
 
       [q|(type (Maybe $a) Nothing (Just $a))
-         (if~ (Just 3) (: (Maybe Float) Nothing) 3 1)
+         (if~ (Just 3) (: Nothing (Maybe Float)) 3 1)
         |] `hasType` Forall [] tFloat
 
       [q|(type (Maybe $a) Nothing (Just $a))
-         (if~ (Just "foo") (: (Maybe Float) Nothing) 3 1)
+         (if~ (Just "foo") (: Nothing (Maybe Float)) 3 1)
         |] `tcFailsWith` "CEUnificationFail"
 
       [q|(type (Maybe $a) Nothing (Just $a))
-         (if~ Nothing (: (Maybe Float) (Just $x)) 3 1)
+         (if~ Nothing (: (Just $x) (Maybe Float)) 3 1)
         |] `hasType` Forall [] tFloat
 
       [q|(type (Maybe $a) Nothing (Just $a))
-         (if~ Nothing (Just (: Float $x)) 3 1)
+         (if~ Nothing (Just (: $x Float)) 3 1)
         |] `hasType` Forall [] tFloat
 
       [q|(type (Maybe $a) Nothing (Just $a))
-         (if~ (Just 3) (Just (: Float $x)) 3 1)
+         (if~ (Just 3) (Just (: $x Float)) 3 1)
         |] `hasType` Forall [] tFloat
 
       [q|(type (Maybe $a) Nothing (Just $a))
-         (if~ (Just 3) (Just (: Float 3)) 3 1)
+         (if~ (Just 3) (Just (: 3 Float)) 3 1)
         |] `hasType` Forall [] tFloat
 
       [q|(type (Maybe $a) Nothing (Just $a))
-         (if~ (Just "foo") (Just (: Float $x)) 3 1)
+         (if~ (Just "foo") (Just (: $x Float)) 3 1)
         |] `tcFailsWith` "CEUnificationFail"
 
       [q|(type (Maybe $a) Nothing (Just $a))
-         (if~ (Just "foo") (Just (: Float 3)) 3 1)
+         (if~ (Just "foo") (Just (: 3 Float)) 3 1)
         |] `tcFailsWith` "CEUnificationFail"
 
       [q|(type (Maybe $a) Nothing (Just $a))
-         (if~ (Just "foo") (Just (: Float "foo")) 3 1)
+         (if~ (Just "foo") (Just (: "foo" Float)) 3 1)
         |] `tcFailsWith` "CEUnificationFail"
 
     it "rejects incorrectly typed constants" $ do
-      "(: String 3)" `tcFailsWith` "CEUnificationFail"
-      [q|(: Float "foo")|] `tcFailsWith` "CEUnificationFail"
-      "(: (, Float) 3)" `tcFailsWith` "CEKindMismatch"
+      "(: 3 String)" `tcFailsWith` "CEUnificationFail"
+      [q|(: "foo" Float)|] `tcFailsWith` "CEUnificationFail"
+      "(: 3 (, Float))" `tcFailsWith` "CEKindMismatch"
 
     it "rejects incorrectly typed pattern bindings" $ do
       [q|(type (Maybe $a) Nothing (Just $a))
@@ -172,71 +173,71 @@ main = hspec $ do
         |] `tcFailsWith` "Something"
 
     it "Allows declaring types as not their most general possibility" $ do
-      [q|(def (: (-> Float Float) id-Float) (λ x x))
+      [q|(def (: id-Float (-> Float Float)) (λ x x))
          (id-Float "blah")
         |] `tcFailsWith` "CEUnificationFail"
 
-      [q|(def id-Float (: (-> Float Float) (λ x x)))
+      [q|(def id-Float (: (λ x x) (-> Float Float)))
          (id-Float "blah")
         |] `tcFailsWith` "CEUnificationFail"
 
       [q|(let ((id (λ x x))
-               ((: (-> Float Float) id-Float) id))
+               ((: id-Float (-> Float Float)) id))
            (, (id "blah") (, (id 3) (id-Float 3))))
         |] `hasType` Forall [] (tString +:* (tFloat +:* tFloat))
 
       [q|(let ((id (λ x x))
-               (id-Float (: (-> Float Float) id)))
+               (id-Float (: id (-> Float Float))))
            (, (id "blah") (, (id 3) (id-Float 3))))
         |] `hasType` Forall [] (tString +:* (tFloat +:* tFloat))
 
-      [q|(let (((: (-> Float Float) id-Float) (λ x x)))
+      [q|(let (((: id-Float (-> Float Float)) (λ x x)))
            (id-Float "blah"))
         |] `tcFailsWith` "CEUnificationFail"
 
-      [q|(let ((id-Float (: (-> Float Float) (λ x x))))
+      [q|(let ((id-Float (: (λ x x) (-> Float Float))))
            (id-Float "blah"))
         |] `tcFailsWith` "CEUnificationFail"
 
     it "Type declarations with variables" $ do
-      [q|(def (: (-> $a $a) id) (λ x x))
+      [q|(def (: id (-> $a $a)) (λ x x))
          (id "blah")
         |] `hasType` Forall [] tString
 
-      [q|(let (((: (-> $a $a) id) (λ x x)))
+      [q|(let (((: id (-> $a $a)) (λ x x)))
            (id "blah"))
         |] `hasType` Forall [] tString
 
-      [q|(let (((: (-> String $a) id) (λ x x)))
+      [q|(let (((: id (-> String $a)) (λ x x)))
            (id "blah"))
         |] `tcFailsWith` "CEDeclarationTooGeneral"
 
-      [q|(let (((: (-> $a String) id) (λ x x)))
+      [q|(let (((: id (-> $a String)) (λ x x)))
            (id "blah"))
         |] `tcFailsWith` "CEDeclarationTooGeneral"
 
-      [q|(def (: (-> String $a) id) (λ x x))
+      [q|(def (: id (-> String $a)) (λ x x))
          (id "blah")
         |] `tcFailsWith` "CEDeclarationTooGeneral"
 
-      [q|(def (: (-> $a String) id) (λ x x))
+      [q|(def (: id (-> $a String)) (λ x x))
          (id "blah")
         |] `tcFailsWith` "CEDeclarationTooGeneral"
 
       [q|(def id (λ x x))
-         ((: (-> $a $a) id) "foo")
+         ((: id (-> $a $a)) "foo")
         |] `hasType` Forall [] tString
 
       [q|(def id (λ x x))
-         ((: (-> String $a) id) "foo")
+         ((: id (-> String $a)) "foo")
         |] `tcFailsWith` "CEDeclarationTooGeneral"
 
       [q|(def id (λ x x))
-         ((: (-> $a String) id) "foo")
+         ((: id (-> $a String)) "foo")
         |] `tcFailsWith` "CEDeclarationTooGeneral"
 
       [q|(def id (λ x x))
-         (: $a (id "blah"))
+         (: (id "blah") $a)
         |] `tcFailsWith` "CEDeclarationTooGeneral"
 
     it "Calculates minimally recursive binding groups" $ do

@@ -113,7 +113,7 @@ treeToStmt = \case
 parseTyped
   :: (SyntaxTree -> Either Text a) -> SyntaxTree -> Either Text (Typed a)
 parseTyped parseUntyped = \case
-  STTree [STBare ":", typ, x] -> do
+  STTree [STBare ":", x, typ] -> do
     parsed <- parseTyped parseUntyped x
     case parsed of
       -- maybe ideally `Typed` would be isomorphic to `([Type], )`
