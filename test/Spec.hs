@@ -198,6 +198,47 @@ main = hspec $ do
            (id-Float "blah"))
         |] `tcFailsWith` "CEUnificationFail"
 
+    it "Type declarations with variables" $ do
+      [q|(def (: (-> $a $a) id) (λ x x))
+         (id "blah")
+        |] `hasType` Forall [] tString
+
+      [q|(let (((: (-> $a $a) id) (λ x x)))
+           (id "blah"))
+        |] `hasType` Forall [] tString
+
+      [q|(let (((: (-> String $a) id) (λ x x)))
+           (id "blah"))
+        |] `tcFailsWith` "CEDeclarationTooGeneral"
+
+      [q|(let (((: (-> $a String) id) (λ x x)))
+           (id "blah"))
+        |] `tcFailsWith` "CEDeclarationTooGeneral"
+
+      [q|(def (: (-> String $a) id) (λ x x))
+         (id "blah")
+        |] `tcFailsWith` "CEDeclarationTooGeneral"
+
+      [q|(def (: (-> $a String) id) (λ x x))
+         (id "blah")
+        |] `tcFailsWith` "CEDeclarationTooGeneral"
+
+      [q|(def id (λ x x))
+         ((: (-> $a $a) id) "foo")
+        |] `hasType` Forall [] tString
+
+      [q|(def id (λ x x))
+         ((: (-> String $a) id) "foo")
+        |] `tcFailsWith` "CEDeclarationTooGeneral"
+
+      [q|(def id (λ x x))
+         ((: (-> $a String) id) "foo")
+        |] `tcFailsWith` "CEDeclarationTooGeneral"
+
+      [q|(def id (λ x x))
+         (: $a (id "blah"))
+        |] `tcFailsWith` "CEDeclarationTooGeneral"
+
     it "Calculates minimally recursive binding groups" $ do
       -- This is necessary because, when typechecking `(letrec ((n a)) e)`, `n`
       -- is only available as a monotype when evaluating `a`. Or as "Typing

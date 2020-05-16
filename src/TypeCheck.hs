@@ -17,7 +17,14 @@ import qualified Data.Text as Text
 import Env
 import Syntax
 
-type Constraint = (MType Tc, MType Tc)
+data Constraint
+  = Unify (MType Tc) (MType Tc)
+  -- ^ These two types must be "the same". That is, we can create a substitution
+  -- `s` such that `apply s t1 = apply s t2`.
+  | Match (MType Tc) (MType Tc)
+  -- ^ These two types must be "the same", but also, t1 must be a specialization
+  -- of t2. That is, we can create a substitution `s` such that `apply s t2 = t1`.
+  deriving (Show)
 
 insertMany :: Ord k => [(k, v)] -> Map k v -> Map k v
 insertMany bs m = Map.union (Map.fromList bs) m
@@ -54,8 +61,10 @@ instance Substitutable a => Substitutable [a] where
   ftv as = Set.unions (fmap ftv as)
 
 instance Substitutable Constraint where
-  apply s (t1, t2) = (apply s t1, apply s t2)
-  ftv (t1, t2) = ftv t1 `Set.union` ftv t2
+  apply s (Unify t1 t2) = Unify (apply s t1) (apply s t2)
+  apply s (Match t1 t2) = Match (apply s t1) (apply s t2)
+  ftv (Unify t1 t2) = ftv t1 `Set.union` ftv t2
+  ftv (Match t1 t2) = ftv t1 `Set.union` ftv t2
 
 instance Substitutable v => Substitutable (Map k v) where
   apply s m = apply s <$> m
@@ -98,12 +107,20 @@ genSym = do
   put $ InferState (tail vars)
   return $ TVar (head vars)
 
+-- | Instantiate a PType into an MType.
+--
+-- For each TVar listed in the Forall, we generate a fresh gensym and substitute
+-- it into the main type.
 instantiate :: PType Tc -> Infer (MType Tc)
 instantiate (Forall as t) = do
   as' <- mapM (const genSym) as
   let subst = Subst $ Map.fromList (zip as as')
   return $ apply subst t
 
+-- | Generalize an MType into a PType.
+--
+-- Any type variables mentioned in the MType, but not found in the environment,
+-- get placed into the Forall.
 generalize :: TypeEnv PType -> MType Tc -> PType Tc
 generalize env t = Forall as t
   where as = Set.toList $ ftv t `Set.difference` ftv env
@@ -116,7 +133,7 @@ lookupVar n = do
     Just t -> instantiate t
 
 unify :: MType Tc -> MType Tc -> Infer ()
-unify t1 t2 = tell [(t1, t2)]
+unify t1 t2 = tell [Unify t1 t2]
 
 ps2tc_Infer :: PType Ps -> Infer (PType Tc)
 ps2tc_Infer t = do
@@ -128,7 +145,7 @@ inferTypedOn _ f (UnTyped e) = f e
 inferTypedOn getType f (Typed t e) = do
   t' <- instantiate =<< ps2tc_Infer t
   e' <- f e
-  unify t' (getType e')
+  tell [Match t' (getType e')]
   return e'
 
 inferTyped :: (a -> Infer (MType Tc)) -> Typed a -> Infer (MType Tc)
@@ -160,10 +177,7 @@ inferExpr expr = case expr of
 
     let (extractType -> (declaredType, bindingName), boundExpr) = b1
     (inferredType, constraints) <- listen $ do
-      inferredType <- inferTypedExpr boundExpr
-      whenJust declaredType $ \t ->
-        unify inferredType =<< instantiate =<< ps2tc_Infer t
-      return inferredType
+      inferTyped inferTypedExpr (mkTyped declaredType boundExpr)
 
     subst <- liftEither $ solver1 constraints
     let gen = generalize env (apply subst inferredType)
@@ -182,11 +196,10 @@ inferExpr expr = case expr of
           (rmType n, Forall [] tv)
     (inferredTypes, constraints) <- listen $ forM (zip genSyms bindings)
       $ \(tv, (n1, e1)) -> do
-        t1 <- local (field @"ieVars" %~ insertMany tBindings)
-                    (inferTypedExpr e1)
+        t1 <- local (field @"ieVars" %~ insertMany tBindings) $ do
+                let e1TypedTwice = mkTyped (fst $ extractType n1) e1
+                inferTyped inferTypedExpr e1TypedTwice
         unify tv t1
-        whenJust (fst $ extractType n1) $ \t1' ->
-          unify tv =<< instantiate =<< ps2tc_Infer t1'
         return t1
 
     subst <- liftEither $ solver1 constraints
@@ -237,49 +250,51 @@ inferPat = \case
 type Unifier = (Subst, [Constraint])
 type Solve a = Either CompileError a
 
--- | Subst that applies s2 followed by s1
-compose :: Subst -> Subst -> Subst
-s1@(Subst s1') `compose` (Subst s2') =
-  Subst $ fmap (apply s1) s2' `Map.union` s1'
-
 -- | Subst that binds variable a to type t
 bind :: TVar Tc -> MType Tc -> Solve Subst
 bind a t | t == TVar a = return nullSubst
          | a `Set.member` ftv t = Left $ CEInfiniteType t
          | otherwise = return $ Subst $ Map.singleton a t
 
-unifies :: MType Tc -> MType Tc -> Solve Subst
-unifies t1 t2
-  | t1 == t2 = return nullSubst
-  | getKind t1 /= getKind t2
-    = Left $ CEKindMismatch t1 t2
-unifies (TVar v) t = bind v t
-unifies t (TVar v) = bind v t
-unifies t1@(t11 `TApp` t12) t2@(t21 `TApp` t22)
-  -- The root of a type application must be a fixed constructor, not a type
-  -- variable. I'm not entirely sure why, and may just remove this restriction
-  -- in future.
-  | isTVar t11 = Left $ CETVarAsRoot t1
-  | isTVar t21 = Left $ CETVarAsRoot t2
-  | otherwise = unifiesMany [t11, t12] [t21, t22]
-  where isTVar = \case { TVar _ -> True; TCon _ -> False; TApp _ _ -> False }
-unifies a b = Left $ CEUnificationFail a b
-
-unifiesMany :: [MType Tc] -> [MType Tc] -> Solve Subst
-unifiesMany [] [] = return nullSubst
-unifiesMany (t1 : ts1) (t2 : ts2) = do
-  su1 <- unifies t1 t2
-  su2 <- unifiesMany (apply su1 ts1) (apply su1 ts2)
-  return (su2 `compose` su1)
-unifiesMany _ _ = Left $ CECompilerBug "unification mismatch"
+constrain :: Bool -> MType Tc -> MType Tc -> Solve Subst
+constrain twoWay = go
+ where
+  go t1 t2
+    | t1 == t2 = return nullSubst
+    | getKind t1 /= getKind t2 = Left $ CEKindMismatch t1 t2
+  go t (TVar v) = bind v t
+  go t1@(TVar v) t2 =
+    if twoWay then bind v t2 else Left $ CEDeclarationTooGeneral t1 t2
+  go t1@(t11 `TApp` t12) t2@(t21 `TApp` t22)
+    -- The root of a type application must be a fixed constructor, not a type
+    -- variable. I'm not entirely sure why, and may just remove this restriction
+    -- in future. Would probably need `ps2tc_PType` and `ps2tc_MType` to be able
+    -- to construct a TVar with a kind other than HType.
+    | isTVar t11 = Left $ CETVarAsRoot t1
+    | isTVar t21 = Left $ CETVarAsRoot t2
+    | otherwise = do
+        sl <- go t11 t21
+        sr <- go (apply sl t12) (apply sl t22)
+        return $ sr `composeSubst` sl
+    where isTVar = \case { TVar _ -> True; TCon _ -> False; TApp _ _ -> False }
+  go a b = Left $ CEUnificationFail a b
 
 solver :: Unifier -> Solve Subst
 solver (su, cs) =
  case cs of
    [] -> return su
-   ((t1, t2) : cs0) -> do
-     su1 <- unifies t1 t2
-     solver (su1 `compose` su, apply su1 cs0)
+   (Unify t1 t2 : cs0) -> do
+     su1 <- constrain True t1 t2
+     solver (su1 `composeSubst` su, apply su1 cs0)
+   (Match t1 t2 : cs0) -> do
+     su1 <- constrain False t1 t2
+     when (apply su1 t2 /= t1) $ Left $ CEDeclarationTooGeneral t1 t2
+     solver (su1 `composeSubst` su, apply su1 cs0)
 
 solver1 :: [Constraint] -> Solve Subst
 solver1 cs = solver (nullSubst, cs)
+
+-- | Subst that applies s2 followed by s1
+composeSubst :: Subst -> Subst -> Subst
+composeSubst s1@(Subst s1') (Subst s2') =
+  Subst $ fmap (apply s1) s2' `Map.union` s1'

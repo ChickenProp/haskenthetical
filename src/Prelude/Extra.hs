@@ -18,6 +18,7 @@ import Data.Maybe as Export (mapMaybe)
 import Data.Text as Export (Text)
 import qualified Data.Text as Text
 import GHC.Generics as Export (Generic)
+import GHC.Stack as Export (HasCallStack)
 
 tshow :: Show a => a -> Text
 tshow = Text.pack . show

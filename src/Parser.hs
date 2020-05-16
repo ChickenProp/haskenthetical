@@ -182,7 +182,7 @@ treeToExpr = \case
     n <- parseTyped parseName name
     v' <- parseTyped treeToExpr v
     ((n, v') :) <$> parseBindings bs
-  parseBindings x = Left $ "could not parse bindings:" <> tshow x
+  parseBindings x = Left $ "could not parse bindings: " <> tshow x
 
 
 treesToStmts :: [SyntaxTree] -> Either CompileError [Stmt]

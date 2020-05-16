@@ -10,7 +10,7 @@ module Env
 
 import Prelude.Extra
 
-import Data.List ((\\))
+import Data.List ((\\), union)
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict ((!?))
 import qualified Data.TreeDiff as TD
@@ -56,16 +56,12 @@ ps2tc_PType env = \case
    case env !? n of
      Nothing -> Left $ CEUnknownType n
      Just t -> return t
-  Forall [] (TVar _) ->
-    Left $ CECompilerBug
-      "I don't know how to handle vars in type annotations yet"
+  Forall [] (TVar (TV NoExt n)) ->
+    return $ Forall [TV HType n] (TVar $ TV HType n)
   Forall [] (a `TApp` b) -> do
-    tl <- ps2tc_PType env $ Forall [] a
-    tr <- ps2tc_PType env $ Forall [] b
-    case (tl, tr) of
-      (Forall [] tl', Forall [] tr') -> do
-        return $ Forall [] $ tl' `TApp` tr'
-      _ -> Left $ CECompilerBug "Somehow got a Forall from `ps2tc_PType`?"
+    Forall vsl tl <- ps2tc_PType env $ Forall [] a
+    Forall vsr tr <- ps2tc_PType env $ Forall [] b
+    return $ Forall (vsl `union` vsr) $ tl `TApp` tr
   Forall _ _ ->
     Left $ CECompilerBug
       "I don't know how to handle foralls in type annotations yet"

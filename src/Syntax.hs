@@ -48,6 +48,7 @@ data CompileError
   | CETVarAsRoot (MType Tc)
   | CEUnboundVar Name
   | CEInfiniteType (MType Tc)
+  | CEDeclarationTooGeneral (MType Tc) (MType Tc)
   | CECompilerBug Text
   deriving (Eq, Show)
 
@@ -193,7 +194,7 @@ data Kind = HType | Kind :*-> Kind
 infixr 4 :*->
 
 class HasKind t where
-  getKind :: t -> Kind
+  getKind :: HasCallStack => t -> Kind
 
 data TVar (p :: Pass) = TV !(XTV p) Name
 deriving instance Eq (TVar Ps)
