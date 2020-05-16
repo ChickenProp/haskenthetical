@@ -1,0 +1,20 @@
+(def (: id (-> $a $a)) (λ x x))
+
+(type (Mu $a $b) (Roll (-> (Mu $a $b) (-> $a $b))))
+
+(def (: unroll (-> (Mu $a $b) (-> (Mu $a $b) (-> $a $b))))
+  (elim-Mu id))
+
+(def (: fix (-> (-> (-> $a $b) (-> $a $b))
+                (-> $a $b)))
+  (λ f (let ((g (λ r (f (λ v (unroll r r v))))))
+         (g (Roll g)))))
+
+
+(def (: fac (-> Float Float))
+  (fix (λ (f n)
+         (if~ n 0
+              1
+              (* n (f (- n 1)))))))
+
+(fac 5)
