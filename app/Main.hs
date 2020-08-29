@@ -4,6 +4,7 @@ import Prelude.Extra
 
 import Control.Monad.Except (liftEither, runExceptT)
 import qualified Data.Text.IO as Text
+import qualified GHC.IO.Encoding as Encoding
 import qualified Options.Applicative as O
 import Shower (printer)
 
@@ -40,6 +41,21 @@ parser = CmdLine
 
 main :: IO ()
 main = do
+  -- We require that a .hth file is encoded in UTF-8 regardless of system
+  -- settings. This affects String and Text IO.
+  Encoding.setLocaleEncoding Encoding.utf8
+
+  -- Not sure if we want this. It's the encoding used for argv and file paths.
+  -- If I set `LC_ALL="en_US.iso88591"` then this makes `-e` work, but plausibly
+  -- there are systems that do encode argv in something other than UTF-8 and
+  -- which correctly say so. For now, trusting the system to be configured
+  -- correctly.
+  -- Encoding.setFileSystemEncoding Encoding.utf8
+
+  -- Not sure if we want this either. It might affect FFI if we do that in
+  -- future? Not including it for now.
+  -- Encoding.setForeignEncoding Encoding.utf8
+
   c <- O.execParser opts
   let c' = if verbose c
         then c { printTree = True
@@ -65,7 +81,7 @@ doCmdLine (CmdLine {..}) = runExceptT go >>= \case
   go = do
    (fName, src) <- case program of
      Left s -> return ("<-e>", s)
-     Right s -> (s,) <$> liftIO (readFile s)
+     Right s -> fmap (s,) $ liftIO $ readFile s
    trees <- liftEither $ first tshow $ parseWholeFile fName src
    when printTree $ liftIO $ printer trees
    stmts <- liftEither $ first tshow $ treesToStmts trees
