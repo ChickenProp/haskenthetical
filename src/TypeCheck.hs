@@ -167,9 +167,10 @@ inferExpr expr = case expr of
   Var n -> lookupVar n
 
   Lam x e -> do
-    tv <- genSym
-    t <- extending (rmType x) (Forall [] tv) (inferTypedExpr e)
-    return $ tv +-> t
+    let (declaredType, bindingName) = extractType x
+    argType <- maybe genSym (instantiate <=< ps2tc_Infer) declaredType
+    t <- extending bindingName (Forall [] argType) (inferTypedExpr e)
+    return $ argType +-> t
 
   Let [] e -> inferTypedExpr e
   Let (b1:bs) e -> do

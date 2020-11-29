@@ -159,6 +159,9 @@ main = hspec $ do
          (if~ 3 Nothing 1 0)
         |] `tcFailsWith` "CEUnificationFail"
 
+    it "rejects incorrectly typed lambda args" $ do
+      "(λ ((: a String)) (+ a 1))" `tcFailsWith` "CEUnificationFail"
+
     it "rejects pattern matching on incomplete constructors" $ do
       pendingWith "Not yet implemented."
       [q|(type (Maybe $a) Nothing (Just $a))
