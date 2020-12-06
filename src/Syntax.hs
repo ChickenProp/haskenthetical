@@ -51,6 +51,22 @@ data CompileError
   | CEDeclarationTooGeneral (MType Tc) (MType Tc)
   | CECompilerBug Text
   deriving (Eq, Show)
+instance Gist CompileError where
+  gist = \case
+    CEParseError x              -> TD.App "CEParseError" [gist x]
+    CEMalformedExpr x           -> TD.App "CEMalformedExpr" [gist x]
+    CEMultiDeclareType x        -> TD.App "CEMultiDeclareType" [gist x]
+    CEMultiDeclareConstructor x -> TD.App "CEMultiDeclareConstructor" [gist x]
+    CEMultiDeclareValue x       -> TD.App "CEMultiDeclareValue" [gist x]
+    CEUnknownType x             -> TD.App "CEUnknownType" [gist x]
+    CEUnificationFail x y       -> TD.App "CEUnificationFail" [gist x, gist y]
+    CEKindMismatch x y          -> TD.App "CEKindMismatch" [gist x, gist y]
+    CETVarAsRoot x              -> TD.App "CETVarAsRoot" [gist x]
+    CEUnboundVar x              -> TD.App "CEUnboundVar" [gist x]
+    CEInfiniteType x            -> TD.App "CEInfiniteType" [gist x]
+    CEDeclarationTooGeneral x y ->
+      TD.App "CEDeclarationTooGeneral" [gist x, gist y]
+    CECompilerBug x             -> TD.App "CECompilerBug" [gist x]
 
 data Pass = Parsed | Typechecked
 type Ps = 'Parsed

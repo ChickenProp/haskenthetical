@@ -13,9 +13,11 @@ import qualified Data.Map.Strict as Map
 import Data.Map.Strict ((!?))
 import qualified Data.Set as Set
 import qualified Data.Text as Text
+import qualified Data.TreeDiff as TD
 
 import Env
 import Syntax
+import Gist
 
 data Constraint
   = Unify (MType Tc) (MType Tc)
@@ -25,6 +27,10 @@ data Constraint
   -- ^ These two types must be "the same", but also, t1 must be a specialization
   -- of t2. That is, we can create a substitution `s` such that `apply s t2 = t1`.
   deriving (Show)
+instance Gist Constraint where
+  gist = \case
+    Unify a b -> TD.App "Unify" [gist a, gist b]
+    Match a b -> TD.App "Match" [gist a, gist b]
 
 insertMany :: Ord k => [(k, v)] -> Map k v -> Map k v
 insertMany bs m = Map.union (Map.fromList bs) m
@@ -33,7 +39,7 @@ extending :: Name -> PType Tc -> Infer a -> Infer a
 extending n t m = local (field @"ieVars" %~ Map.insert n t) m
 
 newtype Subst = Subst { _subst :: Map (TVar Tc) (MType Tc) }
-  deriving (Eq, Show)
+  deriving (Eq, Show, Gist)
 
 nullSubst :: Subst
 nullSubst = Subst Map.empty

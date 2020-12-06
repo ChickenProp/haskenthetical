@@ -11,6 +11,7 @@ import Eval
 import Parser
 import Syntax
 import TypeCheck
+import Gist
 
 
 typeCheck :: String -> Either Text (PType Tc)
@@ -21,10 +22,10 @@ typeCheck program = do
    let decls = flip mapMaybe stmts $ \case
          TypeDecl d -> Just d
          _ -> Nothing
-   newEnv <- first tshow $ declareTypes decls defaultEnv
+   newEnv <- first (tshow . prettyGist) $ declareTypes decls defaultEnv
 
    expr1 <- def2let stmts
-   first tshow $ runTypeCheck (getInferEnv newEnv) expr1
+   first (tshow . prettyGist) $ runTypeCheck (getInferEnv newEnv) expr1
 
 runEval :: String -> Either Text Val
 runEval program = do
