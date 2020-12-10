@@ -244,6 +244,20 @@ main = hspec $ do
          (: (id "blah") $a)
         |] `tcFailsWith` "CEDeclarationTooGeneral"
 
+      [q|(type (Id $a) (Id $a))
+         (if~ (Id "foo") (: $a $a) a (error! "any"))
+        |] `tcFailsWith` "CEDeclarationTooGeneral"
+
+      [q|(type (Id $a) (Id $a))
+         (if~ (Id "foo") (: $a (Id $a)) a (error! "any"))
+        |] `tcFailsWith` "CEDeclarationTooGeneral"
+
+      [q|(if~ (Left "foo") (: $a (+ $a $b)) a (error! "any"))
+        |] `tcFailsWith` "CEDeclarationTooGeneral"
+
+      [q|(if~ (Left "foo") (: (Left $a) (+ String $b)) a (error! "any"))
+        |] `hasType` Forall [] tString
+
     it "Calculates minimally recursive binding groups" $ do
       -- This is necessary because, when typechecking `(letrec ((n a)) e)`, `n`
       -- is only available as a monotype when evaluating `a`. Or as "Typing

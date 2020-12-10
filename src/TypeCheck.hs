@@ -4,7 +4,7 @@ module TypeCheck
 
 import Prelude.Extra
 
-import Control.Monad (replicateM)
+import Control.Monad (replicateM, zipWithM)
 import Control.Monad.Except (liftEither)
 import Control.Monad.Trans (lift)
 import Control.Monad.RWS.Strict
@@ -25,7 +25,13 @@ data Constraint
   -- `s` such that `apply s t1 = apply s t2`.
   | Match (MType Tc) (MType Tc)
   -- ^ These two types must be "the same", but also, t1 must be a specialization
-  -- of t2. That is, we can create a substitution `s` such that `apply s t2 = t1`.
+  -- of t2. That is, we can create a substitution `s` such that
+  -- `apply s t2 = t1`.
+  --
+  --     g <- genSym
+  --     Match tString g -- this is fine, will substitute g -> String
+  --                     -- going forward.
+  --     Match g tString -- this will throw an error.
   deriving (Show)
 instance Gist Constraint where
   gist = \case
@@ -223,34 +229,56 @@ inferExpr expr = case expr of
 
   IfMatch inE pat thenE elseE -> do
     inT <- inferTypedExpr inE
-    (patT, patBindings) <- inferTypedOn fst inferPat pat
+    (_, patBindings) <- inferTypedOn fst (inferPat inT) pat
+
     thenT <- local (field @"ieVars" %~ insertMany patBindings)
                    (inferTypedExpr thenE)
     elseT <- inferTypedExpr elseE
 
-    unify inT patT
     unify thenT elseT
 
     return thenT
 
-inferPat :: Pattern -> Infer (MType Tc, [(Name, PType Tc)])
-inferPat = \case
-  PatLiteral l -> (, []) <$> inferLiteral l
-  PatVal n -> do
-    t <- genSym
-    return (t, [(n, Forall [] t)])
+inferPat :: MType Tc -> Pattern -> Infer (MType Tc, [(Name, PType Tc)])
+inferPat inT = \case
+  PatLiteral l -> do
+    t <- inferLiteral l
+    unify t inT
+    return (t, [])
+  PatVal n -> return (inT, [(n, Forall [] inT)])
   PatConstr conName pats -> do
-    (pTypes, bindings) <- unzip <$> traverse (inferTypedOn fst inferPat) pats
-    t <- genSym
+    pTypes <- traverse (\_ -> genSym) pats
 
     env <- asks ieVars
     case env !? conName of
       Nothing -> lift $ Left $ CEUnboundVar conName
       Just conPType -> do
         conMType <- instantiate conPType
-        unify conMType $ foldr (+->) t pTypes
+        unify conMType $ foldr (+->) inT pTypes
 
-    return (t, concat bindings)
+    -- When a pattern has a type signature, The Match from `inferTypedOn` has to
+    -- happen *after* we unify inT with the pattern type. Otherwise the type
+    -- matched against won't be sufficiently known, and we won't constrain it.
+    --
+    -- This isn't fully effective. E.g.
+    --
+    --     (if~ 3 (: $x $a) x ...) # fails as expected
+    --     (if~ n (: $x $a) (+ x 1) ...) # should fail, doesn't
+    --     (+ 1 (if~ n (: $x $a) x ...)) # should fail, doesn't
+    --
+    -- We might need to implement constraints to get those others to work, and
+    -- when we do, it shouldn't be necessary to pass `inT` in to this function
+    -- any more.
+    --
+    -- Discussion: https://www.reddit.com/r/ProgrammingLanguages/comments/k7cj7e
+
+    bindings <-
+      map snd
+        <$> zipWithM (\pat pType -> inferTypedOn fst (inferPat pType) pat)
+                     pats
+                     pTypes
+
+    return (inT, concat bindings)
 
 ---
 
