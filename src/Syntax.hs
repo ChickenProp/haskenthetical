@@ -23,6 +23,7 @@ module Syntax
   , extractType
   , mkTyped
   , rmType
+  , ppCompileError
 
   , DoBuiltin(..), getArg, mkBuiltin, mkBuiltinUnsafe
   ) where
@@ -47,7 +48,7 @@ data CompileError
   | CEKindMismatch (MType Tc) (MType Tc)
   | CETVarAsRoot (MType Tc)
   | CEUnboundVar Name
-  | CEInfiniteType (MType Tc)
+  | CEInfiniteType (TVar Tc) (MType Tc)
   | CEDeclarationTooGeneral (MType Tc) (MType Tc)
   | CECompilerBug Text
   deriving (Eq, Show)
@@ -63,10 +64,25 @@ instance Gist CompileError where
     CEKindMismatch x y          -> TD.App "CEKindMismatch" [gist x, gist y]
     CETVarAsRoot x              -> TD.App "CETVarAsRoot" [gist x]
     CEUnboundVar x              -> TD.App "CEUnboundVar" [gist x]
-    CEInfiniteType x            -> TD.App "CEInfiniteType" [gist x]
+    CEInfiniteType x y          -> TD.App "CEInfiniteType" [gist x, gist y]
     CEDeclarationTooGeneral x y ->
       TD.App "CEDeclarationTooGeneral" [gist x, gist y]
     CECompilerBug x             -> TD.App "CECompilerBug" [gist x]
+
+ppCompileError :: CompileError -> Text
+ppCompileError = \case
+  CEParseError t -> "Parse error:\n" <> t
+  CEUnificationFail x y ->
+    "Unification fail:\n  "
+      <> tshow (prettyGist x)
+      <> "\ndoes not unify with\n  "
+      <> tshow (prettyGist y)
+  CEInfiniteType x y ->
+    "Infinite type: trying to unify\n  "
+      <> tshow (prettyGist x)
+      <> "\nwith\n  "
+      <> tshow (prettyGist y)
+  e -> tshow e
 
 data Pass = Parsed | Typechecked
 type Ps = 'Parsed

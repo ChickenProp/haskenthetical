@@ -288,7 +288,7 @@ type Solve a = Either CompileError a
 -- | Subst that binds variable a to type t
 bind :: TVar Tc -> MType Tc -> Solve Subst
 bind a t | t == TVar a = return nullSubst
-         | a `Set.member` ftv t = Left $ CEInfiniteType t
+         | a `Set.member` ftv t = Left $ CEInfiniteType a t
          | otherwise = return $ Subst $ Map.singleton a t
 
 constrain :: Bool -> MType Tc -> MType Tc -> Solve Subst

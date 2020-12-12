@@ -2,7 +2,7 @@ module Main where
 
 import Prelude.Extra
 
-import Control.Monad.Except (liftEither, runExceptT)
+import Control.Monad.Except (ExceptT, liftEither, runExceptT)
 import qualified Data.Text.IO as Text
 import qualified GHC.IO.Encoding as Encoding
 import qualified Options.Applicative as O
@@ -71,30 +71,32 @@ main = do
 
 doCmdLine :: CmdLine -> IO ()
 doCmdLine (CmdLine {..}) = runExceptT go >>= \case
-  Left err -> do
-    putStrLn "failed"
-    Text.putStrLn err
+  Left err -> Text.putStrLn err
   Right Nothing -> return ()
   Right (Just res) -> printer res
  where
   printGist v = liftIO $ print $ prettyGist v <> "\n"
+
+  liftCE :: Monad m => Either CompileError a -> ExceptT Text m a
+  liftCE = liftEither . first ppCompileError
+
   go = do
    (fName, src) <- case program of
      Left s -> return ("<-e>", s)
      Right s -> fmap (s,) $ liftIO $ readFile s
-   trees <- liftEither $ first tshow $ parseWholeFile fName src
+   trees <- liftCE $ parseWholeFile fName src
    when printTree $ liftIO $ printer trees
-   stmts <- liftEither $ first tshow $ treesToStmts trees
+   stmts <- liftCE $ treesToStmts trees
    when printExpr $ printGist stmts
 
    let decls = flip mapMaybe stmts $ \case
          TypeDecl d -> Just d
          _ -> Nothing
-   newEnv <- liftEither $ first tshow $ declareTypes decls defaultEnv
+   newEnv <- liftCE $ declareTypes decls defaultEnv
    when printEnv $ printGist newEnv
 
    expr1 <- liftEither $ def2let stmts
-   ty <- liftEither $ first tshow $ runTypeCheck (getInferEnv newEnv) expr1
+   ty <- liftCE $ runTypeCheck (getInferEnv newEnv) expr1
    when printType $ printGist ty
    if noExec
      then return Nothing
