@@ -17,7 +17,12 @@ import Syntax
 type Parser = Parsec Void String
 
 sc :: Parser ()
-sc = L.space space1 empty empty
+sc = L.space space1 lineComment empty
+ where
+  lineComment = try $ do
+    (string "#!" <|> string "#")
+    lookAhead space1
+    void $ takeWhileP (Just "character") (/= '\n')
 
 lexeme :: Parser a -> Parser a
 lexeme = L.lexeme sc
