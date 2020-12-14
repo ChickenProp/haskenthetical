@@ -239,6 +239,8 @@ inferExpr expr = case expr of
 
     return thenT
 
+  MacroExpr _ _ -> lift $ Left $ CECompilerBug "Should have macroexpanded first"
+
 inferPat :: MType Tc -> Pattern -> Infer (MType Tc, [(Name, PType Tc)])
 inferPat inT = \case
   PatLiteral l -> do

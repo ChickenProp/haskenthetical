@@ -17,7 +17,7 @@ import Gist
 typeCheck :: String -> Either Text (PType Tc)
 typeCheck program = do
    trees <- first tshow $ parseWholeFile "<str>" program
-   stmts <- first tshow $ treesToStmts trees
+   stmts <- first tshow $ treesToStmts defaultEnv trees
 
    let decls = flip mapMaybe stmts $ \case
          TypeDecl d -> Just d
@@ -30,7 +30,7 @@ typeCheck program = do
 runEval :: String -> Either Text Val
 runEval program = do
    trees <- first tshow $ parseWholeFile "<str>" program
-   stmts <- first tshow $ treesToStmts trees
+   stmts <- first tshow $ treesToStmts defaultEnv trees
 
    let decls = flip mapMaybe stmts $ \case
          TypeDecl d -> Just d

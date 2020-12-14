@@ -53,6 +53,23 @@ herror :: Val -> Either Text Val
 herror (Literal (String e)) = Left e
 herror _ = Left "error only accepts string arguments"
 
+mfoldr :: [SyntaxTree] -> Either Text SyntaxTree
+mfoldr = \case
+  (op:arg1:arg2:rest) -> case rest of
+    [] -> return $ STTree [op, arg1, arg2]
+    _ -> do
+      recurs <- mfoldr (op:arg2:rest)
+      return $ STTree [op, arg1, recurs]
+  _ -> Left "Need at least an op and two args to fold"
+
+mfoldl :: [SyntaxTree] -> Either Text SyntaxTree
+mfoldl = \case
+  (op:arg1:arg2:rest) -> case rest of
+    [] -> return $ STTree [op, arg1, arg2]
+    _ -> do
+      mfoldl $ [op, STTree [op, arg1, arg2]] ++ rest
+  _ -> Left "Need at least an op and two args to fold"
+
 defaultVarEnv :: Map Name (PType Tc, Val)
 defaultVarEnv = fmap (\(x, y) -> (y, x)) $ Map.fromList
   [ "+" ~~ bb "+" hplus ~~ Forall [] (tFloat +-> tFloat +-> tFloat)
@@ -71,6 +88,8 @@ defaultVarEnv = fmap (\(x, y) -> (y, x)) $ Map.fromList
       ~~ heither
       ~~ Forall [a', b', c'] ((a +-> c) +-> (b +-> c) +-> (a +:+ b) +-> c)
   , "error!" ~~ bb "error!" herror ~~ Forall [a'] (tString +-> a)
+  , "»" ~~ Macro (BuiltinMacro "»" mfoldr) ~~ Forall [] tMacro
+  , "«" ~~ Macro (BuiltinMacro "»" mfoldl) ~~ Forall [] tMacro
   ]
   where a' = TV HType "a"
         a = TVar a'
@@ -90,6 +109,7 @@ defaultTypeEnv = Map.fromList
   , ("->", TCon $ TC (HType :*-> HType :*-> HType) "->")
   , ("+", TCon $ TC (HType :*-> HType :*-> HType) "+")
   , (",", TCon $ TC (HType :*-> HType :*-> HType) ",")
+  , ("Macro", tMacro)
   ]
 
 defaultEnv :: FullEnv

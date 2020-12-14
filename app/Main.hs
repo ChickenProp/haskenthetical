@@ -19,6 +19,7 @@ import TypeCheck
 data CmdLine = CmdLine
   { printTree :: Bool
   , printExpr :: Bool
+  , printExpansion :: Bool
   , printEnv :: Bool
   , printType :: Bool
   , verbose :: Bool
@@ -30,6 +31,7 @@ parser :: O.Parser CmdLine
 parser = CmdLine
   <$> O.switch (O.long "print-tree" <> O.help "Print the syntax tree")
   <*> O.switch (O.long "print-expr" <> O.help "Print the parsed expressions")
+  <*> O.switch (O.long "print-expansion" <> O.help "Print the macroexpansion")
   <*> O.switch (O.long "print-env" <> O.help "Print the environment")
   <*> O.switch (O.long "print-type" <> O.help "Print the inferred type")
   <*> O.switch (O.long "verbose" <> O.short 'v' <> O.help "Print everything")
@@ -60,6 +62,7 @@ main = do
   let c' = if verbose c
         then c { printTree = True
                , printExpr = True
+               , printExpansion = True
                , printEnv = True
                , printType = True
                }
@@ -84,18 +87,23 @@ doCmdLine (CmdLine {..}) = runExceptT go >>= \case
    (fName, src) <- case program of
      Left s -> return ("<-e>", s)
      Right s -> fmap (s,) $ liftIO $ readFile s
+
    trees <- liftCE $ parseWholeFile fName src
    when printTree $ liftIO $ printer trees
-   stmts <- liftCE $ treesToStmts trees
+
+   stmts <- liftCE $ treesToStmts defaultEnv trees
    when printExpr $ printGist stmts
 
-   let decls = flip mapMaybe stmts $ \case
+   expanded <- liftEither $ traverse (macroExpandStmt defaultEnv) stmts
+   when printExpansion $ printGist expanded
+
+   let decls = flip mapMaybe expanded $ \case
          TypeDecl d -> Just d
          _ -> Nothing
    newEnv <- liftCE $ declareTypes decls defaultEnv
    when printEnv $ printGist newEnv
 
-   expr1 <- liftEither $ def2let stmts
+   expr1 <- liftEither $ def2let expanded
    ty <- liftCE $ runTypeCheck (getInferEnv newEnv) expr1
    when printType $ printGist ty
    if noExec

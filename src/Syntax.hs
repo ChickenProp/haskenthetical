@@ -2,6 +2,7 @@ module Syntax
   ( CompileError(..)
   , Pass(..), Ps, Tc, NoExt(..)
   , Name(..), HasName(..)
+  , SyntaxTree(..)
   , Env(..)
   , Stmt(..)
   , Expr(..)
@@ -9,6 +10,7 @@ module Syntax
   , Val(..)
   , Literal(..)
   , Builtin(..)
+  , Macro(..)
   , Typed(..)
   , TypeDecl(..)
   , MType(..)
@@ -90,6 +92,18 @@ type Tc = 'Typechecked
 
 data NoExt = NoExt deriving (Eq, Show, Ord)
 
+data SyntaxTree
+  = STString Text
+  | STFloat Double
+  | STBare Text
+  | STTree [SyntaxTree]
+  deriving (Eq, Show)
+instance Gist SyntaxTree where
+  gist (STString t) = gist (tshow t)
+  gist (STFloat f) = gist f
+  gist (STBare t) = gist t
+  gist (STTree ts) = TD.App "" (gist <$> ts)
+
 newtype Name = Name Text
   deriving (Eq, Ord, Show, IsString, Semigroup, Monoid)
 instance Gist Name where
@@ -104,6 +118,13 @@ instance Show Builtin where
   show (Builtin' (Name n) _) = "<" ++ Text.unpack n ++ ">"
 instance Eq Builtin where
   Builtin' n1 _ == Builtin' n2 _ = n1 == n2
+
+-- Just so that `Val` can derive instances
+data Macro = BuiltinMacro Name ([SyntaxTree] -> Either Text SyntaxTree)
+instance Show Macro where
+  show (BuiltinMacro (Name n) _) = "<macro:" ++ Text.unpack n ++ ">"
+instance Eq Macro where
+  BuiltinMacro n1 _ == BuiltinMacro n2 _ = n1 == n2
 
 -- | A helper type to let us construct `Builtin` with do notation. Use with
 -- `getArg` and `mkBuiltin`.
@@ -163,6 +184,7 @@ data Val
   | Thunk Env Expr
   | Clos Env Name Expr
   | Tag Name [Val]
+  | Macro Macro
   deriving (Eq, Show)
 
 instance Gist Val where
@@ -172,6 +194,7 @@ instance Gist Val where
     Thunk env expr -> TD.App "Thunk" [gist env, gist expr]
     Clos _ _ _ -> gist ("Clos" :: Text)
     Tag (Name n) vals -> TD.App (Text.unpack n) (map gist vals)
+    Macro _ -> gist ("Macro" :: Text)
 
 data Pattern
   = PatConstr Name [Typed Pattern]
@@ -196,6 +219,7 @@ data Expr
   | Lam (Typed Name) (Typed Expr)
   | Call (Typed Expr) (Typed Expr)
   | IfMatch (Typed Expr) (Typed Pattern) (Typed Expr) (Typed Expr)
+  | MacroExpr Name [SyntaxTree]
   deriving (Eq, Show)
 
 instance Gist Expr where
@@ -207,11 +231,13 @@ instance Gist Expr where
     Lam n expr -> TD.App "Lam" [gist n, gist expr]
     Call e1 e2 -> TD.App "Call" [gist e1, gist e2]
     IfMatch i pat e1 e2 -> TD.App "IfMatch" [gist i, gist pat, gist e1, gist e2]
+    MacroExpr n trees -> TD.App "MacroExpr" [gist n, gist trees]
 
 data Stmt
   = Expr (Typed Expr)
   | Def (Typed Name) (Typed Expr)
   | TypeDecl TypeDecl
+  | MacroStmt Name [SyntaxTree]
   deriving (Eq, Show)
 
 instance Gist Stmt where
@@ -219,6 +245,7 @@ instance Gist Stmt where
     Expr e -> gist e
     Def n expr -> TD.App "Def" [gist n, gist expr]
     TypeDecl td -> gist td
+    MacroStmt n trees -> TD.App "MacroStmt" [gist n, gist trees]
 
 data Kind = HType | Kind :*-> Kind
   deriving (Eq, Show, Ord)
@@ -303,14 +330,17 @@ infixr 4 +:+
 class BuiltinTypes a where
   tFloat :: MType a
   tString :: MType a
+  tMacro :: MType a
 
 instance BuiltinTypes Ps where
   tFloat = TCon (TC NoExt "Float")
   tString = TCon (TC NoExt "String")
+  tMacro = TCon (TC NoExt "Macro")
 
 instance BuiltinTypes Tc where
   tFloat = TCon (TC HType "Float")
   tString = TCon (TC HType "String")
+  tMacro = TCon (TC HType "Macro")
 
 data PType (p :: Pass) = Forall [TVar p] (MType p)
 deriving instance Eq (PType Ps)

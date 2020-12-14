@@ -1,10 +1,12 @@
-module Eval (call, eval1, def2let) where
+module Eval (call, eval1, def2let, macroExpandExpr, macroExpandStmt) where
 
 import Prelude.Extra
 
 import Data.List (sortOn)
 import qualified Data.Map.Strict as Map
 
+import Env
+import Parser
 import Syntax
 
 isExpr :: Stmt -> Bool
@@ -12,6 +14,43 @@ isExpr = \case
   Expr _ -> True
   Def _ _ -> False
   TypeDecl _ -> False
+  MacroStmt _ _ -> error "shouldn't have macro here"
+
+macroExpandStmt :: FullEnv -> Stmt -> Either Text Stmt
+macroExpandStmt env stmt = case stmt of
+  MacroStmt name trees -> do
+    case Map.lookup name (feVars env) of
+      Just (_, Macro (BuiltinMacro _ f)) -> do
+        tree <- f trees
+        treeToStmt env tree
+      Just _ -> Left "Attempting to macroexpand a non-macro"
+      Nothing -> Left "Attempting to macroexpand a nonexistent var"
+  Expr te -> let (t, e) = extractType te
+             in Expr . mkTyped t <$> macroExpandExpr env e
+  _ -> return stmt
+
+macroExpandExpr :: FullEnv -> Expr -> Either Text Expr
+macroExpandExpr env expr = case expr of
+  MacroExpr name trees -> do
+    case Map.lookup name (feVars env) of
+      Just (_, Macro (BuiltinMacro _ f)) -> do
+        tree <- f trees
+        treeToExpr env tree
+      Just _ -> Left "Attempting to macroexpand a non-macro"
+      Nothing -> Left "Attempting to macroexpand a nonexistent var"
+
+  Val _ -> return expr
+  Var _ -> return expr
+  Let bs e -> Let <$> meBindings bs <*> meTyped e
+  LetRec bs e -> LetRec <$> meBindings bs <*> meTyped e
+  Lam n e -> Lam n <$> meTyped e
+  Call e1 e2 -> Call <$> meTyped e1 <*> meTyped e2
+  IfMatch inE pat thenE elseE ->
+    IfMatch <$> meTyped inE <*> pure pat <*> meTyped thenE <*> meTyped elseE
+ where
+  meTyped te = let (t, e) = extractType te
+               in mkTyped t <$> macroExpandExpr env e
+  meBindings = traverse (\(n, e) -> (n,) <$> meTyped e)
 
 def2let :: [Stmt] -> Either Text (Typed Expr)
 def2let exprs = go [] $ sortOn isExpr exprs
@@ -22,6 +61,7 @@ def2let exprs = go [] $ sortOn isExpr exprs
    (Expr _) : _ -> Left $ "can only have one expr" <> tshow exprs
    (Def n1 e1) : e -> go ((n1, e1):pairs) e
    (TypeDecl _) : e -> go pairs e
+   (MacroStmt _ _) : _ -> Left "Should have macroexpanded first"
 
 eval1 :: Env -> Expr -> Either Text Val
 eval1 env@(Env syms) = elimThunk <=< \case
@@ -54,6 +94,9 @@ eval1 env@(Env syms) = elimThunk <=< \case
     case patternMatch (rmType pat) inV of
       Nothing -> eval1 env (rmType elseE)
       Just bindings -> eval1 (Env $ Map.union (Map.fromList bindings) syms) (rmType thenE)
+
+  -- Left is for program errors, this is a compiler error
+  MacroExpr _ _ -> error "Should have macroexpanded first"
  where
   elimThunk :: Val -> Either Text Val
   elimThunk (Thunk newenv e) = elimThunk =<< eval1 newenv e

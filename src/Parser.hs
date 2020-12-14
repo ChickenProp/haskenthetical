@@ -1,10 +1,11 @@
-module Parser (parseWholeFile, treesToStmts) where
+module Parser (parseWholeFile, treeToExpr, treeToStmt, treesToStmts) where
 
 import Prelude.Extra
 
 import Data.Bifunctor (first)
 import qualified Data.Char as Char
 import Data.List (foldl1')
+import qualified Data.Map.Strict as Map
 import qualified Data.Text as Text
 import Data.Void (Void)
 
@@ -12,6 +13,7 @@ import Text.Megaparsec
 import Text.Megaparsec.Char
 import qualified Text.Megaparsec.Char.Lexer as L
 
+import Env
 import Syntax
 
 type Parser = Parsec Void String
@@ -29,13 +31,6 @@ lexeme = L.lexeme sc
 
 symbol :: String -> Parser String
 symbol = L.symbol sc
-
-data SyntaxTree
-  = STString Text
-  | STFloat Double
-  | STBare Text
-  | STTree [SyntaxTree]
-  deriving (Eq, Show)
 
 -- Having to list all special characters in one place seems awkward.
 isNonSyntax :: Char -> Bool
@@ -86,11 +81,11 @@ parseWholeFile fName input =
   first (CEParseError . Text.pack . errorBundlePretty)
     $ parse stWholeFile fName input
 
-treeToStmt :: SyntaxTree -> Either Text Stmt
-treeToStmt = \case
+treeToStmt :: FullEnv -> SyntaxTree -> Either Text Stmt
+treeToStmt env = \case
   STTree [STBare "def", name, body] -> do
     n <- parseTyped parseName name
-    b <- parseTyped treeToExpr body
+    b <- parseTyped (treeToExpr env) body
     return $ Def n b
   STTree (STBare "def" : _) ->
     Left "bad Def"
@@ -113,7 +108,13 @@ treeToStmt = \case
   STTree (STBare "type" : _) ->
     Left "bad type"
 
-  x -> Expr <$> parseTyped treeToExpr x
+  STTree (STBare n : rest) | isMacro n -> return $ MacroStmt (Name n) rest
+
+  x -> Expr <$> parseTyped (treeToExpr env) x
+ where
+  isMacro n = case Map.lookup (Name n) (feVars env) of
+    Nothing -> False
+    Just (t, _) -> t == Forall [] tMacro
 
 parseTyped
   :: (SyntaxTree -> Either Text a) -> SyntaxTree -> Either Text (Typed a)
@@ -133,8 +134,8 @@ parseName = \case
   STBare n -> return $ Name n
   x -> Left $ "could not parse name: " <> tshow x
 
-treeToExpr :: SyntaxTree -> Either Text Expr
-treeToExpr = \case
+treeToExpr :: FullEnv -> SyntaxTree -> Either Text Expr
+treeToExpr env = \case
   STString s -> return $ Val (Literal $ String s)
   STFloat f -> return $ Val (Literal $ Float f)
   STBare b -> return $ Var (Name b)
@@ -142,7 +143,7 @@ treeToExpr = \case
   STTree [] -> Left "() is not currently a thing"
 
   STTree [STBare "λ", params, body] -> do
-    b <- parseTyped treeToExpr body
+    b <- parseTyped (treeToExpr env) body
     let go xs = case xs of
           [] -> Left "lambda needs at least one arg"
           [n] -> Lam <$> parseTyped parseName n <*> pure b
@@ -156,42 +157,48 @@ treeToExpr = \case
 
   STTree [STBare "let", STTree bindings, body] -> do
     bs <- parseBindings bindings
-    b <- parseTyped treeToExpr body
+    b <- parseTyped (treeToExpr env) body
     return $ Let bs b
   STTree (STBare "let" : _) ->
     Left "bad let"
 
   STTree [STBare "letrec", STTree bindings, body] -> do
     bs <- parseBindings bindings
-    b <- parseTyped treeToExpr body
+    b <- parseTyped (treeToExpr env) body
     return $ LetRec bs b
   STTree (STBare "letrec":_) ->
     Left "bad letrec"
 
   STTree [STBare "if~", inTree, pattern, thenTree, elseTree] -> do
-    i <- parseTyped treeToExpr inTree
+    i <- parseTyped (treeToExpr env) inTree
     p <- parseTyped parsePattern pattern
-    t <- parseTyped treeToExpr thenTree
-    e <- parseTyped treeToExpr elseTree
+    t <- parseTyped (treeToExpr env) thenTree
+    e <- parseTyped (treeToExpr env) elseTree
     return $ IfMatch i p t e
 
-  STTree [a] -> treeToExpr a
+  STTree (STBare n : rest) | isMacro n -> return $ MacroExpr (Name n) rest
+
+  STTree [a] -> (treeToExpr env) a
   STTree [a1, a2] -> do
-    a1' <- parseTyped treeToExpr a1
-    a2' <- parseTyped treeToExpr a2
+    a1' <- parseTyped (treeToExpr env) a1
+    a2' <- parseTyped (treeToExpr env) a2
     return $ Call a1' a2'
-  STTree (a1:a2:as) -> treeToExpr $ STTree $ STTree [a1, a2] : as
+  STTree (a1:a2:as) -> (treeToExpr env) $ STTree $ STTree [a1, a2] : as
  where
   parseBindings [] = return []
   parseBindings (STTree [name, v] : bs) = do
     n <- parseTyped parseName name
-    v' <- parseTyped treeToExpr v
+    v' <- parseTyped (treeToExpr env) v
     ((n, v') :) <$> parseBindings bs
   parseBindings x = Left $ "could not parse bindings: " <> tshow x
 
+  isMacro n = case Map.lookup (Name n) (feVars env) of
+    Nothing -> False
+    Just (t, _) -> t == Forall [] tMacro
 
-treesToStmts :: [SyntaxTree] -> Either CompileError [Stmt]
-treesToStmts = mapM (first CEMalformedExpr . treeToStmt)
+
+treesToStmts :: FullEnv -> [SyntaxTree] -> Either CompileError [Stmt]
+treesToStmts env = mapM (first CEMalformedExpr . treeToStmt env)
 
 parsePattern :: SyntaxTree -> Either Text Pattern
 parsePattern = \case
