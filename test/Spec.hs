@@ -335,12 +335,12 @@ main = hspec $ do
 
     it "letrec" $ do
       [q|(letrec ((id (λ x x))
-                  (f (either id g))
+                  (f (elim-+ id g))
                   (g (λ x (f (Left x)))))
              (f (Right 3)))|]
         `returns` vFloat 3
       [q|(def id (λ x x))
-         (def f (either id g))
+         (def f (elim-+ id g))
          (def g (λ x (f (Left x))))
          (f (Right 3))|]
         `returns` vFloat 3
