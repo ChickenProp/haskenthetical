@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -Wno-orphans #-}
 
 import Prelude.Extra
 
@@ -13,33 +14,40 @@ import Syntax
 import TypeCheck
 import Gist
 
+-- | This is only partial equality, so don't implement it in the main codebase.
+instance Eq Val where
+  Literal l1 == Literal l2 = l1 == l2
+  Tag n1 vs1 == Tag n2 vs2 = n1 == n2 && vs1 == vs2
+  _ == _ = False
 
 typeCheck :: String -> Either Text (PType Tc)
 typeCheck program = do
    trees <- first tshow $ parseWholeFile "<str>" program
    stmts <- first tshow $ treesToStmts defaultEnv trees
+   expanded <- first tshow $ traverse (macroExpandStmt defaultEnv) stmts
 
-   let decls = flip mapMaybe stmts $ \case
+   let decls = flip mapMaybe expanded $ \case
          TypeDecl d -> Just d
          _ -> Nothing
    newEnv <- first (tshow . prettyGist) $ declareTypes decls defaultEnv
 
-   expr1 <- def2let stmts
-   first (tshow . prettyGist) $ runTypeCheck (getInferEnv newEnv) expr1
+   expr1 <- def2let expanded
+   first (tshow . prettyGist) $ fst <$> runTypeCheck (getInferEnv newEnv) expr1
 
 runEval :: String -> Either Text Val
 runEval program = do
    trees <- first tshow $ parseWholeFile "<str>" program
    stmts <- first tshow $ treesToStmts defaultEnv trees
+   expanded <- first tshow $ traverse (macroExpandStmt defaultEnv) stmts
 
-   let decls = flip mapMaybe stmts $ \case
+   let decls = flip mapMaybe expanded $ \case
          TypeDecl d -> Just d
          _ -> Nothing
    newEnv <- first tshow $ declareTypes decls defaultEnv
 
-   expr1 <- def2let stmts
-   void $ first tshow $ runTypeCheck (getInferEnv newEnv) expr1
-   eval1 (getSymbols newEnv) (rmType expr1)
+   expr1 <- def2let expanded
+   (_, tcExpr1) <- first tshow $ runTypeCheck (getInferEnv newEnv) expr1
+   eval1 (getSymbols newEnv) (rmType tcExpr1)
 
 main :: IO ()
 main = hspec $ do

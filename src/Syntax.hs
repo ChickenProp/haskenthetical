@@ -1,6 +1,6 @@
 module Syntax
   ( CompileError(..)
-  , Pass(..), Ps, Tc, NoExt(..)
+  , Pass(..), Ps, Me, Tc, NoExt(..)
   , Name(..), HasName(..)
   , SyntaxTree(..)
   , Env(..)
@@ -86,9 +86,10 @@ ppCompileError = \case
       <> tshow (prettyGist y)
   e -> tshow e
 
-data Pass = Parsed | Typechecked
+data Pass = Parsed | MacroExpanded | Typechecked
 type Ps = 'Parsed
 type Tc = 'Typechecked
+type Me = 'MacroExpanded
 
 data NoExt = NoExt deriving (Eq, Show, Ord)
 
@@ -116,15 +117,11 @@ class HasName a where
 data Builtin = Builtin' Name (Val -> Either Text Val)
 instance Show Builtin where
   show (Builtin' (Name n) _) = "<" ++ Text.unpack n ++ ">"
-instance Eq Builtin where
-  Builtin' n1 _ == Builtin' n2 _ = n1 == n2
 
 -- Just so that `Val` can derive instances
 data Macro = BuiltinMacro Name ([SyntaxTree] -> Either Text SyntaxTree)
 instance Show Macro where
   show (BuiltinMacro (Name n) _) = "<macro:" ++ Text.unpack n ++ ">"
-instance Eq Macro where
-  BuiltinMacro n1 _ == BuiltinMacro n2 _ = n1 == n2
 
 -- | A helper type to let us construct `Builtin` with do notation. Use with
 -- `getArg` and `mkBuiltin`.
@@ -155,7 +152,7 @@ mkBuiltinUnsafe :: DoBuiltin (Either Text Val) -> Val
 mkBuiltinUnsafe = either (error "Bad DoBuiltin") id . mkBuiltin
 
 newtype Env = Env { unEnv :: Map Name Val }
-  deriving (Eq, Show, Gist)
+  deriving (Show, Gist)
 
 data TypeDecl = TypeDecl'
   { tdName :: Name
@@ -181,11 +178,11 @@ instance Gist Literal where
 data Val
   = Literal Literal
   | Builtin Builtin
-  | Thunk Env Expr
-  | Clos Env Name Expr
+  | Thunk Env (Expr Tc)
+  | Clos Env Name (Expr Tc)
   | Tag Name [Val]
   | Macro Macro
-  deriving (Eq, Show)
+  deriving (Show)
 
 instance Gist Val where
   gist = \case
@@ -211,18 +208,21 @@ instance Gist Pattern where
     PatVal n -> TD.App "PatVal" [gist n]
     PatLiteral l -> TD.App "PatLiteral" [gist l]
 
-data Expr
+data Expr (p :: Pass)
   = Val Val
   | Var Name
-  | Let [(Typed Name, Typed Expr)] (Typed Expr)
-  | LetRec [(Typed Name, Typed Expr)] (Typed Expr)
-  | Lam (Typed Name) (Typed Expr)
-  | Call (Typed Expr) (Typed Expr)
-  | IfMatch (Typed Expr) (Typed Pattern) (Typed Expr) (Typed Expr)
-  | MacroExpr Name [SyntaxTree]
-  deriving (Eq, Show)
+  | Let [(Typed Name, Typed (Expr p))] (Typed (Expr p))
+  | LetRec [(Typed Name, Typed (Expr p))] (Typed (Expr p))
+  | Lam (Typed Name) (Typed (Expr p))
+  | Call (Typed (Expr p)) (Typed (Expr p))
+  | IfMatch (Typed (Expr p)) (Typed Pattern) (Typed (Expr p)) (Typed (Expr p))
+  | MacroExpr !(XMacroThing p) Name [SyntaxTree]
 
-instance Gist Expr where
+deriving instance Show (Expr Ps)
+deriving instance Show (Expr Me)
+deriving instance Show (Expr Tc)
+
+instance Gist (Expr p) where
   gist = \case
     Val v -> TD.App "Val" [gist v]
     Var n -> TD.App "Var" [gist n]
@@ -231,21 +231,29 @@ instance Gist Expr where
     Lam n expr -> TD.App "Lam" [gist n, gist expr]
     Call e1 e2 -> TD.App "Call" [gist e1, gist e2]
     IfMatch i pat e1 e2 -> TD.App "IfMatch" [gist i, gist pat, gist e1, gist e2]
-    MacroExpr n trees -> TD.App "MacroExpr" [gist n, gist trees]
+    MacroExpr _ n trees -> TD.App "MacroExpr" [gist n, gist trees]
 
-data Stmt
-  = Expr (Typed Expr)
-  | Def (Typed Name) (Typed Expr)
+data Stmt (p :: Pass)
+  = Expr (Typed (Expr p))
+  | Def (Typed Name) (Typed (Expr p))
   | TypeDecl TypeDecl
-  | MacroStmt Name [SyntaxTree]
-  deriving (Eq, Show)
+  | MacroStmt !(XMacroThing p) Name [SyntaxTree]
 
-instance Gist Stmt where
+deriving instance Show (Stmt Ps)
+deriving instance Show (Stmt Me)
+deriving instance Show (Stmt Tc)
+
+type family XMacroThing (p :: Pass)
+type instance XMacroThing Ps = NoExt
+type instance XMacroThing Me = Void
+type instance XMacroThing Tc = Void
+
+instance Gist (Stmt p) where
   gist = \case
     Expr e -> gist e
     Def n expr -> TD.App "Def" [gist n, gist expr]
     TypeDecl td -> gist td
-    MacroStmt n trees -> TD.App "MacroStmt" [gist n, gist trees]
+    MacroStmt _ n trees -> TD.App "MacroStmt" [gist n, gist trees]
 
 data Kind = HType | Kind :*-> Kind
   deriving (Eq, Show, Ord)

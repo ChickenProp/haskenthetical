@@ -81,7 +81,7 @@ parseWholeFile fName input =
   first (CEParseError . Text.pack . errorBundlePretty)
     $ parse stWholeFile fName input
 
-treeToStmt :: FullEnv -> SyntaxTree -> Either Text Stmt
+treeToStmt :: FullEnv -> SyntaxTree -> Either Text (Stmt Ps)
 treeToStmt env = \case
   STTree [STBare "def", name, body] -> do
     n <- parseTyped parseName name
@@ -108,7 +108,7 @@ treeToStmt env = \case
   STTree (STBare "type" : _) ->
     Left "bad type"
 
-  STTree (STBare n : rest) | isMacro n -> return $ MacroStmt (Name n) rest
+  STTree (STBare n : rest) | isMacro n -> return $ MacroStmt NoExt (Name n) rest
 
   x -> Expr <$> parseTyped (treeToExpr env) x
  where
@@ -134,7 +134,7 @@ parseName = \case
   STBare n -> return $ Name n
   x -> Left $ "could not parse name: " <> tshow x
 
-treeToExpr :: FullEnv -> SyntaxTree -> Either Text Expr
+treeToExpr :: FullEnv -> SyntaxTree -> Either Text (Expr Ps)
 treeToExpr env = \case
   STString s -> return $ Val (Literal $ String s)
   STFloat f -> return $ Val (Literal $ Float f)
@@ -176,7 +176,7 @@ treeToExpr env = \case
     e <- parseTyped (treeToExpr env) elseTree
     return $ IfMatch i p t e
 
-  STTree (STBare n : rest) | isMacro n -> return $ MacroExpr (Name n) rest
+  STTree (STBare n : rest) | isMacro n -> return $ MacroExpr NoExt (Name n) rest
 
   STTree [a] -> (treeToExpr env) a
   STTree [a1, a2] -> do
@@ -197,7 +197,7 @@ treeToExpr env = \case
     Just (t, _) -> t == Forall [] tMacro
 
 
-treesToStmts :: FullEnv -> [SyntaxTree] -> Either CompileError [Stmt]
+treesToStmts :: FullEnv -> [SyntaxTree] -> Either CompileError [Stmt Ps]
 treesToStmts env = mapM (first CEMalformedExpr . treeToStmt env)
 
 parsePattern :: SyntaxTree -> Either Text Pattern

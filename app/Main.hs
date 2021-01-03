@@ -104,8 +104,8 @@ doCmdLine (CmdLine {..}) = runExceptT go >>= \case
    when printEnv $ printGist newEnv
 
    expr1 <- liftEither $ def2let expanded
-   ty <- liftCE $ runTypeCheck (getInferEnv newEnv) expr1
+   (ty, tcExpr1) <- liftCE $ runTypeCheck (getInferEnv newEnv) expr1
    when printType $ printGist ty
    if noExec
      then return Nothing
-     else liftEither $ Just <$> eval1 (getSymbols newEnv) (rmType expr1)
+     else liftEither $ Just <$> eval1 (getSymbols newEnv) (rmType tcExpr1)

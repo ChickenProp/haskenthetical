@@ -16,6 +16,7 @@ import Data.Generics.Product as Export (field, getField, setField)
 import Data.Map.Strict as Export (Map)
 import Data.Maybe as Export (mapMaybe)
 import Data.Text as Export (Text)
+import Data.Void as Export (Void, absurd)
 import qualified Data.Text as Text
 import GHC.Generics as Export (Generic)
 import GHC.Stack as Export (HasCallStack)

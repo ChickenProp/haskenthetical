@@ -98,11 +98,15 @@ instance Substitutable v => Substitutable (Map k v) where
 -- (Of course, we also need to make sure the solver *knows* about this
 -- unification. Meaning we need to do it inside of a `listen`, not outside.)
 
-runTypeCheck :: InferEnv -> Typed Expr -> Either CompileError (PType Tc)
+runTypeCheck
+  :: InferEnv
+  -> Typed (Expr Me)
+  -> Either CompileError (PType Tc, Typed (Expr Tc))
 runTypeCheck env expr = do
-  (ty, _, constraints) <- runRWST (inferTypedExpr expr) env (InferState letters)
+  ((ty, expr'), _, constraints)
+    <- runRWST (inferTypedExpr expr) env (InferState letters)
   subst <- solver1 constraints
-  return $ generalize (ieVars env) $ apply subst ty
+  return (generalize (ieVars env) $ apply subst ty, expr')
  where
   letters :: [TVar Tc]
   letters =
@@ -160,41 +164,45 @@ inferTypedOn getType f (Typed t e) = do
   tell [Match t' (getType e')]
   return e'
 
-inferTyped :: (a -> Infer (MType Tc)) -> Typed a -> Infer (MType Tc)
-inferTyped = inferTypedOn id
-
-inferTypedExpr :: Typed Expr -> Infer (MType Tc)
-inferTypedExpr = inferTyped inferExpr
+inferTypedExpr :: Typed (Expr Me) -> Infer (MType Tc, Typed (Expr Tc))
+inferTypedExpr te = let (t, _) = extractType te in fmap (mkTyped t) <$> inferTypedOn fst inferExpr te
 
 inferLiteral :: Literal -> Infer (MType Tc)
 inferLiteral = return . \case
     Float _ -> tFloat
     String _ -> tString
 
-inferExpr :: Expr -> Infer (MType Tc)
+-- | This both checks the type and switches up the Pass from Me to Tc. As of
+-- writing, the Pass change is completely straightforward, and it might make
+-- more sense to do it separately. But it feels likely to be less
+-- straightforward in future, and to need info from typechecking, so here we
+-- are.
+inferExpr :: Expr Me -> Infer (MType Tc, Expr Tc)
 inferExpr expr = case expr of
-  Val (Literal l) -> inferLiteral l
+  Val (Literal l) -> (, Val (Literal l)) <$> inferLiteral l
   Val v -> error $ "unexpected Val during typechecking: " ++ show v
 
-  Var n -> lookupVar n
+  Var n -> (, Var n) <$> lookupVar n
 
   Lam x e -> do
     let (declaredType, bindingName) = extractType x
     argType <- maybe genSym (instantiate <=< ps2tc_Infer) declaredType
-    t <- extending bindingName (Forall [] argType) (inferTypedExpr e)
-    return $ argType +-> t
+    (t, e') <- extending bindingName (Forall [] argType) (inferTypedExpr e)
+    return (argType +-> t, Lam x e')
 
-  Let [] e -> inferTypedExpr e
-  Let (b1:bs) e -> do
-    env <- asks ieVars
+  Let bindings e -> go [] bindings
+   where
+    go bindings' [] = fmap (Let $ reverse bindings') <$> inferTypedExpr e
+    go bindings' (b1:bs) = do
+      env <- asks ieVars
 
-    let (extractType -> (declaredType, bindingName), boundExpr) = b1
-    (inferredType, constraints) <- listen $ do
-      inferTyped inferTypedExpr (mkTyped declaredType boundExpr)
+      let (extractType -> (declaredType, bindingName), boundExpr) = b1
+      ((inferredType, boundExpr'), constraints) <- listen $ do
+        inferTypedOn fst inferTypedExpr (mkTyped declaredType boundExpr)
 
-    subst <- liftEither $ solver1 constraints
-    let gen = generalize env (apply subst inferredType)
-    extending bindingName gen (inferExpr $ Let bs e)
+      subst <- liftEither $ solver1 constraints
+      let gen = generalize env (apply subst inferredType)
+      extending bindingName gen $ go ((fst b1, boundExpr'):bindings') bs
 
   LetRec bindings e -> do
     env <- asks ieVars
@@ -207,39 +215,42 @@ inferExpr expr = case expr of
 
     let tBindings = flip map (zip genSyms bindings) $ \(tv, (n, _)) ->
           (rmType n, Forall [] tv)
-    (inferredTypes, constraints) <- listen $ forM (zip genSyms bindings)
-      $ \(tv, (n1, e1)) -> do
-        t1 <- local (field @"ieVars" %~ insertMany tBindings) $ do
-                let e1TypedTwice = mkTyped (fst $ extractType n1) e1
-                inferTyped inferTypedExpr e1TypedTwice
+    (inferredTypesAndBindings, constraints) <-
+      listen $ forM (zip genSyms bindings) $ \(tv, (n1, e1)) -> do
+        (t1, e1') <- local (field @"ieVars" %~ insertMany tBindings) $ do
+          let e1TypedTwice = mkTyped (fst $ extractType n1) e1
+          inferTypedOn fst inferTypedExpr e1TypedTwice
         unify tv t1
-        return t1
+        return (t1, (n1, e1'))
+    let (inferredTypes, bindings') = unzip inferredTypesAndBindings
 
     subst <- liftEither $ solver1 constraints
     let gens = flip map (zip bindings inferredTypes) $ \((n, _), t1) ->
           (rmType n, generalize env (apply subst t1))
-    seq gens $ local (field @"ieVars" %~ insertMany gens) $ inferTypedExpr e
+    (t, e') <- local (field @"ieVars" %~ insertMany gens) $ inferTypedExpr e
+
+    return (t, LetRec bindings' e')
 
   Call fun a -> do
-    t1 <- inferTypedExpr fun
-    t2 <- inferTypedExpr a
+    (t1, fun') <- inferTypedExpr fun
+    (t2, a') <- inferTypedExpr a
     tv <- genSym
     unify t1 (t2 +-> tv)
-    return tv
+    return (tv, Call fun' a')
 
   IfMatch inE pat thenE elseE -> do
-    inT <- inferTypedExpr inE
+    (inT, inE') <- inferTypedExpr inE
     (_, patBindings) <- inferTypedOn fst (inferPat inT) pat
 
-    thenT <- local (field @"ieVars" %~ insertMany patBindings)
+    (thenT, thenE') <- local (field @"ieVars" %~ insertMany patBindings)
                    (inferTypedExpr thenE)
-    elseT <- inferTypedExpr elseE
+    (elseT, elseE') <- inferTypedExpr elseE
 
     unify thenT elseT
 
-    return thenT
+    return (thenT, IfMatch inE' pat thenE' elseE')
 
-  MacroExpr _ _ -> lift $ Left $ CECompilerBug "Should have macroexpanded first"
+  MacroExpr v _ _ -> absurd v
 
 inferPat :: MType Tc -> Pattern -> Infer (MType Tc, [(Name, PType Tc)])
 inferPat inT = \case
