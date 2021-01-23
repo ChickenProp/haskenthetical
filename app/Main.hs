@@ -3,6 +3,7 @@ module Main where
 import Prelude.Extra
 
 import Control.Monad.Except (ExceptT, liftEither, runExceptT)
+import Data.Either (partitionEithers)
 import qualified Data.Text.IO as Text
 import qualified GHC.IO.Encoding as Encoding
 import qualified Options.Applicative as O
@@ -91,24 +92,40 @@ doCmdLine (CmdLine {..}) = runExceptT go >>= \case
    trees <- liftCE $ parseWholeFile fName src
    when printTree $ liftIO $ printer trees
 
-   stmts <- liftCE $ treesToStmts defaultEnv trees
-   when printExpr $ printGist stmts
+   let topLevel = map treeToTopLevel trees
+       (declGroups, otherTopLevel) =
+         partitionEithers $ flip map topLevel $ \case
+           DeclarationsPs _ ts -> Left ts
+           OtherTopLevelPs _ t -> Right t
+           Declarations v _ -> absurd v
+           TopLevelDecl v _ -> absurd v
+           TopLevelExpr v _ -> absurd v
+       updateEnv env stmtTrees = do
+         stmts <- liftCE $ treesToStmts env stmtTrees
+         when printExpr $ printGist stmts
 
-   expanded <- liftEither $ traverse (macroExpandStmt defaultEnv) stmts
-   when printExpansion $ printGist expanded
+         expanded <- liftEither $ traverse (macroExpandStmt env) stmts
+         when printExpansion $ printGist expanded
 
-   let tyDecls = flip mapMaybe expanded $ \case
-         TypeDecl d -> Just d
-         _ -> Nothing
-   newEnv1 <- liftCE $ declareTypes tyDecls defaultEnv
+         let tyDecls = flip mapMaybe expanded $ \case
+               TypeDecl d -> Just d
+               _ -> Nothing
+         newEnv1 <- liftCE $ declareTypes tyDecls env
 
-   let varDecls = flip mapMaybe expanded $ \case
-         Def n e -> Just (n, e)
-         _ -> Nothing
-   varDeclsTC <- liftCE $ typeCheckDefs (getInferEnv newEnv1) varDecls
-   newEnv <- liftCE $ declareVars varDeclsTC newEnv1
+         let varDecls = flip mapMaybe expanded $ \case
+               Def n e -> Just (n, e)
+               _ -> Nothing
+         varDeclsTC <- liftCE $ typeCheckDefs (getInferEnv newEnv1) varDecls
+         newEnv <- liftCE $ declareVars varDeclsTC newEnv1
+         when printEnv $ printGist newEnv
 
-   when printEnv $ printGist newEnv
+         return (expanded, newEnv)
+
+   newEnv1 <- foldM (\e ts -> snd <$> updateEnv e ts) defaultEnv declGroups
+   (expanded, newEnv) <- updateEnv newEnv1 otherTopLevel
+   -- when printExpansion $ printGist expanded
+   -- newEnv <- updateEnv newEnv1 otherTopLevel
+   -- when printEnv $ printGist newEnv
 
    expr1 <- liftEither $ getOnlyExpr expanded
    (ty, tcExpr1) <- liftCE $ runTypeCheck (getInferEnv newEnv) expr1

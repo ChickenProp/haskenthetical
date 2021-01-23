@@ -1,4 +1,6 @@
-module Parser (parseWholeFile, treeToExpr, treeToStmt, treesToStmts) where
+module Parser
+  (parseWholeFile, treeToExpr, treeToStmt, treesToStmts, treeToTopLevel)
+where
 
 import Prelude.Extra
 
@@ -80,6 +82,11 @@ parseWholeFile :: String -> String -> Either CompileError [SyntaxTree]
 parseWholeFile fName input =
   first (CEParseError . Text.pack . errorBundlePretty)
     $ parse stWholeFile fName input
+
+treeToTopLevel :: SyntaxTree -> TopLevel Ps
+treeToTopLevel = \case
+  STTree (STBare "declarations" : body) -> DeclarationsPs NoExt body
+  t -> OtherTopLevelPs NoExt t
 
 treeToStmt :: FullEnv -> SyntaxTree -> Either Text (Stmt Ps)
 treeToStmt env = \case

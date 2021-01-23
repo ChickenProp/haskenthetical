@@ -4,6 +4,7 @@ module Syntax
   , Name(..), HasName(..)
   , SyntaxTree(..)
   , Env(..)
+  , TopLevel(..)
   , Stmt(..)
   , Expr(..)
   , Pattern(..)
@@ -88,8 +89,30 @@ ppCompileError = \case
 
 data Pass = Parsed | MacroExpanded | Typechecked
 type Ps = 'Parsed
-type Tc = 'Typechecked
 type Me = 'MacroExpanded
+type Tc = 'Typechecked
+
+type family IfPassLE (p1 :: Pass) (p2 :: Pass)
+type instance IfPassLE Ps Ps = NoExt
+type instance IfPassLE Ps Me = NoExt
+type instance IfPassLE Ps Tc = NoExt
+type instance IfPassLE Me Ps = Void
+type instance IfPassLE Me Me = NoExt
+type instance IfPassLE Me Tc = NoExt
+type instance IfPassLE Tc Ps = Void
+type instance IfPassLE Tc Me = Void
+type instance IfPassLE Tc Tc = NoExt
+
+type family IfPassGT (p1 :: Pass) (p2 :: Pass)
+type instance IfPassGT Ps Ps = Void
+type instance IfPassGT Ps Me = Void
+type instance IfPassGT Ps Tc = Void
+type instance IfPassGT Me Ps = NoExt
+type instance IfPassGT Me Me = Void
+type instance IfPassGT Me Tc = Void
+type instance IfPassGT Tc Ps = NoExt
+type instance IfPassGT Tc Me = NoExt
+type instance IfPassGT Tc Tc = Void
 
 data NoExt = NoExt deriving (Eq, Show, Ord)
 
@@ -254,6 +277,25 @@ instance Gist (Stmt p) where
     Def n expr -> TD.App "Def" [gist n, gist expr]
     TypeDecl td -> gist td
     MacroStmt _ n trees -> TD.App "MacroStmt" [gist n, gist trees]
+
+data TopLevel (p :: Pass)
+  = DeclarationsPs !(IfPassLE p Ps) [SyntaxTree]
+  | OtherTopLevelPs !(IfPassLE p Ps) SyntaxTree
+  | Declarations !(IfPassGT p Ps) [Stmt p]
+  | TopLevelDecl !(IfPassGT p Ps) (Stmt p)
+  | TopLevelExpr !(IfPassGT p Ps) (Typed (Expr p))
+
+deriving instance Show (TopLevel Ps)
+deriving instance Show (TopLevel Me)
+deriving instance Show (TopLevel Tc)
+
+instance Gist (TopLevel p) where
+  gist = \case
+    DeclarationsPs _ x -> TD.App "Declarations" [gist x]
+    OtherTopLevelPs _ x -> TD.App "OtherTopLevelPs" [gist x]
+    Declarations _ x -> TD.App "Declarations" [gist x]
+    TopLevelDecl _ x -> TD.App "TopLevelDecl" [gist x]
+    TopLevelExpr _ x -> TD.App "TopLevelExpr" [gist x]
 
 data Kind = HType | Kind :*-> Kind
   deriving (Eq, Show, Ord)
