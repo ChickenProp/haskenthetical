@@ -26,12 +26,19 @@ typeCheck program = do
    stmts <- first tshow $ treesToStmts defaultEnv trees
    expanded <- first tshow $ traverse (macroExpandStmt defaultEnv) stmts
 
-   let decls = flip mapMaybe expanded $ \case
+   let tyDecls = flip mapMaybe expanded $ \case
          TypeDecl d -> Just d
          _ -> Nothing
-   newEnv <- first (tshow . prettyGist) $ declareTypes decls defaultEnv
+   newEnv1 <- first (tshow . prettyGist) $ declareTypes tyDecls defaultEnv
 
-   expr1 <- def2let expanded
+   let varDecls = flip mapMaybe expanded $ \case
+         Def n e -> Just (n, e)
+         _ -> Nothing
+   varDeclsTC <-
+     first (tshow . prettyGist) $ typeCheckDefs (getInferEnv newEnv1) varDecls
+   newEnv <- first (tshow . prettyGist) $ declareVars varDeclsTC newEnv1
+
+   expr1 <- getOnlyExpr expanded
    first (tshow . prettyGist) $ fst <$> runTypeCheck (getInferEnv newEnv) expr1
 
 runEval :: String -> Either Text Val
@@ -40,12 +47,19 @@ runEval program = do
    stmts <- first tshow $ treesToStmts defaultEnv trees
    expanded <- first tshow $ traverse (macroExpandStmt defaultEnv) stmts
 
-   let decls = flip mapMaybe expanded $ \case
+   let tyDecls = flip mapMaybe expanded $ \case
          TypeDecl d -> Just d
          _ -> Nothing
-   newEnv <- first tshow $ declareTypes decls defaultEnv
+   newEnv1 <- first (tshow . prettyGist) $ declareTypes tyDecls defaultEnv
 
-   expr1 <- def2let expanded
+   let varDecls = flip mapMaybe expanded $ \case
+         Def n e -> Just (n, e)
+         _ -> Nothing
+   varDeclsTC <-
+     first (tshow . prettyGist) $ typeCheckDefs (getInferEnv newEnv1) varDecls
+   newEnv <- first (tshow . prettyGist) $ declareVars varDeclsTC newEnv1
+
+   expr1 <- getOnlyExpr expanded
    (_, tcExpr1) <- first tshow $ runTypeCheck (getInferEnv newEnv) expr1
    eval1 (getSymbols newEnv) (rmType tcExpr1)
 

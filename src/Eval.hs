@@ -1,20 +1,12 @@
-module Eval (call, eval1, def2let, macroExpandExpr, macroExpandStmt) where
+module Eval (call, eval1, getOnlyExpr, macroExpandExpr, macroExpandStmt) where
 
 import Prelude.Extra
 
-import Data.List (sortOn)
 import qualified Data.Map.Strict as Map
 
 import Env
 import Parser
 import Syntax
-
-isExpr :: Stmt Me -> Bool
-isExpr = \case
-  Expr _ -> True
-  Def _ _ -> False
-  TypeDecl _ -> False
-  MacroStmt v _ _ -> absurd v
 
 macroExpandStmt :: FullEnv -> (Stmt Ps) -> Either Text (Stmt Me)
 macroExpandStmt env stmt = case stmt of
@@ -56,16 +48,17 @@ macroExpandExpr env expr = case expr of
   meTyped = macroExpandTypedExpr env
   meBindings = traverse (\(n, e) -> (n,) <$> meTyped e)
 
-def2let :: [Stmt Me] -> Either Text (Typed (Expr Me))
-def2let exprs = go [] $ sortOn isExpr exprs
+getOnlyExpr :: [Stmt Me] -> Either Text (Typed (Expr Me))
+getOnlyExpr stmts = case getExprs stmts of
+  [] -> Left "Need an expr"
+  [e] -> Right e
+  es -> Left $ "Can only have one expr, got: " <> tshow es
  where
-  go pairs = \case
-   [] -> Left "need at least one expr"
-   [Expr e] -> let (t, _) = extractType e in Right $ mkTyped t $ LetRec pairs e
-   (Expr _) : _ -> Left $ "can only have one expr" <> tshow exprs
-   (Def n1 e1) : e -> go ((n1, e1):pairs) e
-   (TypeDecl _) : e -> go pairs e
-   (MacroStmt v _ _) : _ -> absurd v
+  getExprs = mapMaybe $ \case
+   Expr e -> Just e
+   Def _ _ -> Nothing
+   TypeDecl _ -> Nothing
+   MacroStmt v _ _ -> absurd v
 
 eval1 :: Env -> Expr Tc -> Either Text Val
 eval1 env@(Env syms) = elimThunk <=< \case

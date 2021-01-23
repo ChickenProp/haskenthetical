@@ -1,5 +1,6 @@
 module TypeCheck
   ( runTypeCheck
+  , typeCheckDefs
   ) where
 
 import Prelude.Extra
@@ -112,6 +113,21 @@ runTypeCheck env expr = do
   letters =
     map (TV HType . Name . Text.pack) $ [1..] >>= flip replicateM ['a'..'z']
 
+typeCheckDefs
+  :: InferEnv
+  -> [(Typed Name, Typed (Expr Me))]
+  -> Either CompileError [(Name, PType Tc, Typed (Expr Tc))]
+typeCheckDefs env defs = do
+  ((inferredTypes, inferredExprs), _, _)
+    <- runRWST (inferRecBindings defs) env (InferState letters)
+  -- Should be no need for constraint solving or generalization here, because
+  -- `inferRecBindings` does those.
+  return $ zipWith (\(n, t) (_, e) -> (n, t, e)) inferredTypes inferredExprs
+ where
+  letters :: [TVar Tc]
+  letters =
+    map (TV HType . Name . Text.pack) $ [1..] >>= flip replicateM ['a'..'z']
+
 ---
 
 data InferState = InferState { _vars :: [TVar Tc] }
@@ -165,7 +181,9 @@ inferTypedOn getType f (Typed t e) = do
   return e'
 
 inferTypedExpr :: Typed (Expr Me) -> Infer (MType Tc, Typed (Expr Tc))
-inferTypedExpr te = let (t, _) = extractType te in fmap (mkTyped t) <$> inferTypedOn fst inferExpr te
+inferTypedExpr te =
+  let (t, _) = extractType te
+  in fmap (mkTyped t) <$> inferTypedOn fst inferExpr te
 
 inferLiteral :: Literal -> Infer (MType Tc)
 inferLiteral = return . \case
@@ -205,28 +223,7 @@ inferExpr expr = case expr of
       extending bindingName gen $ go ((fst b1, boundExpr'):bindings') bs
 
   LetRec bindings e -> do
-    env <- asks ieVars
-
-    -- Every binding gets a unique genSym, which we unify with its declared type
-    -- if any. For each expr, we infer its type given that the other names have
-    -- those genSyms. Then we unify its inferred type with its own genSym.
-
-    genSyms <- forM bindings $ \_ -> genSym
-
-    let tBindings = flip map (zip genSyms bindings) $ \(tv, (n, _)) ->
-          (rmType n, Forall [] tv)
-    (inferredTypesAndBindings, constraints) <-
-      listen $ forM (zip genSyms bindings) $ \(tv, (n1, e1)) -> do
-        (t1, e1') <- local (field @"ieVars" %~ insertMany tBindings) $ do
-          let e1TypedTwice = mkTyped (fst $ extractType n1) e1
-          inferTypedOn fst inferTypedExpr e1TypedTwice
-        unify tv t1
-        return (t1, (n1, e1'))
-    let (inferredTypes, bindings') = unzip inferredTypesAndBindings
-
-    subst <- liftEither $ solver1 constraints
-    let gens = flip map (zip bindings inferredTypes) $ \((n, _), t1) ->
-          (rmType n, generalize env (apply subst t1))
+    (gens, bindings') <- inferRecBindings bindings
     (t, e') <- local (field @"ieVars" %~ insertMany gens) $ inferTypedExpr e
 
     return (t, LetRec bindings' e')
@@ -251,6 +248,37 @@ inferExpr expr = case expr of
     return (thenT, IfMatch inE' pat thenE' elseE')
 
   MacroExpr v _ _ -> absurd v
+
+inferRecBindings
+  :: [(Typed Name, Typed (Expr Me))]
+  -> Infer ( [(Name, PType Tc)]
+           , [(Typed Name, Typed (Expr Tc))]
+           )
+inferRecBindings bindings = do
+  env <- asks ieVars
+
+  -- Every binding gets a unique genSym, which we unify with its declared type
+  -- if any. For each expr, we infer its type given that the other names have
+  -- those genSyms. Then we unify its inferred type with its own genSym.
+
+  genSyms <- forM bindings $ \_ -> genSym
+
+  let tBindings = flip map (zip genSyms bindings) $ \(tv, (n, _)) ->
+        (rmType n, Forall [] tv)
+  (inferredTypesAndBindings, constraints) <-
+    listen $ forM (zip genSyms bindings) $ \(tv, (n1, e1)) -> do
+      (t1, e1') <- local (field @"ieVars" %~ insertMany tBindings) $ do
+        let e1TypedTwice = mkTyped (fst $ extractType n1) e1
+        inferTypedOn fst inferTypedExpr e1TypedTwice
+      unify tv t1
+      return (t1, (n1, e1'))
+  let (inferredTypes, bindings') = unzip inferredTypesAndBindings
+
+  subst <- liftEither $ solver1 constraints
+  let gens = flip map (zip bindings inferredTypes) $ \((n, _), t1) ->
+        (rmType n, generalize env (apply subst t1))
+
+  return (gens, bindings')
 
 inferPat :: MType Tc -> Pattern -> Infer (MType Tc, [(Name, PType Tc)])
 inferPat inT = \case

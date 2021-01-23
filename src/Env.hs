@@ -3,6 +3,7 @@ module Env
   , InferEnv(..)
   , TypeEnv
   , declareTypes
+  , declareVars
   , getInferEnv
   , getSymbols
   , ps2tc_PType
@@ -65,6 +66,27 @@ ps2tc_PType env = \case
   Forall _ _ ->
     Left $ CECompilerBug
       "I don't know how to handle foralls in type annotations yet"
+
+declareVars
+  :: [(Name, PType Tc, Typed (Expr Tc))]
+  -> FullEnv
+  -> Either CompileError FullEnv
+declareVars [] env = return env
+declareVars vars env = do
+  let newNames = flip map vars $ \(name, _, _) -> name
+      existingNames = Map.keys $ feVars env
+  forM_ (group $ sort $ newNames ++ existingNames) $ \case
+    [] -> error "impossible"
+    [_] -> pure ()
+    (x:_) -> Left $ CEMultiDeclareValue x
+
+  let insertions = flip map vars $ \(name, ty, expr) ->
+        (name, (ty, Thunk newSymbols $ rmType expr))
+      newFeVars = feVars env <> Map.fromList insertions
+      ret = env { feVars = newFeVars }
+      newSymbols = getSymbols ret
+
+  return ret
 
 declareTypes :: [TypeDecl] -> FullEnv -> Either CompileError FullEnv
 declareTypes decls env = do

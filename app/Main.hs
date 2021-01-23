@@ -97,13 +97,20 @@ doCmdLine (CmdLine {..}) = runExceptT go >>= \case
    expanded <- liftEither $ traverse (macroExpandStmt defaultEnv) stmts
    when printExpansion $ printGist expanded
 
-   let decls = flip mapMaybe expanded $ \case
+   let tyDecls = flip mapMaybe expanded $ \case
          TypeDecl d -> Just d
          _ -> Nothing
-   newEnv <- liftCE $ declareTypes decls defaultEnv
+   newEnv1 <- liftCE $ declareTypes tyDecls defaultEnv
+
+   let varDecls = flip mapMaybe expanded $ \case
+         Def n e -> Just (n, e)
+         _ -> Nothing
+   varDeclsTC <- liftCE $ typeCheckDefs (getInferEnv newEnv1) varDecls
+   newEnv <- liftCE $ declareVars varDeclsTC newEnv1
+
    when printEnv $ printGist newEnv
 
-   expr1 <- liftEither $ def2let expanded
+   expr1 <- liftEither $ getOnlyExpr expanded
    (ty, tcExpr1) <- liftCE $ runTypeCheck (getInferEnv newEnv) expr1
    when printType $ printGist ty
    if noExec
