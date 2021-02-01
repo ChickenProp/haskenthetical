@@ -53,6 +53,7 @@ data CompileError
   | CEUnboundVar Name
   | CEInfiniteType (TVar Tc) (MType Tc)
   | CEDeclarationTooGeneral (MType Tc) (MType Tc)
+  | CEMiscError Text
   | CECompilerBug Text
   deriving (Eq, Show)
 instance Gist CompileError where
@@ -70,6 +71,7 @@ instance Gist CompileError where
     CEInfiniteType x y          -> TD.App "CEInfiniteType" [gist x, gist y]
     CEDeclarationTooGeneral x y ->
       TD.App "CEDeclarationTooGeneral" [gist x, gist y]
+    CEMiscError x               -> TD.App "CEMiscError" [gist x]
     CECompilerBug x             -> TD.App "CECompilerBug" [gist x]
 
 ppCompileError :: CompileError -> Text

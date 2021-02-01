@@ -8,33 +8,33 @@ import Env
 import Parser
 import Syntax
 
-macroExpandStmt :: FullEnv -> (Stmt Ps) -> Either Text (Stmt Me)
+macroExpandStmt :: FullEnv -> (Stmt Ps) -> Either CompileError (Stmt Me)
 macroExpandStmt env stmt = case stmt of
   MacroStmt NoExt name trees -> do
     case Map.lookup name (feVars env) of
       Just (_, Macro (BuiltinMacro _ f)) -> do
-        tree <- f trees
-        macroExpandStmt env =<< treeToStmt env tree
-      Just _ -> Left "Attempting to macroexpand a non-macro"
-      Nothing -> Left "Attempting to macroexpand a nonexistent var"
+        tree <- first CEMiscError $ f trees
+        macroExpandStmt env =<< first CEMiscError (treeToStmt env tree)
+      Just _ -> Left $ CEMiscError "Attempting to macroexpand a non-macro"
+      Nothing -> Left $ CEMiscError "Attempting to macroexpand a nonexistent var"
   Expr te -> Expr <$> macroExpandTypedExpr env te
   Def n te -> Def n <$> macroExpandTypedExpr env te
   TypeDecl td -> return $ TypeDecl td
 
 macroExpandTypedExpr
-  :: FullEnv -> Typed (Expr Ps) -> Either Text (Typed (Expr Me))
+  :: FullEnv -> Typed (Expr Ps) -> Either CompileError (Typed (Expr Me))
 macroExpandTypedExpr env te = let (t, e) = extractType te
                               in mkTyped t <$> macroExpandExpr env e
 
-macroExpandExpr :: FullEnv -> Expr Ps -> Either Text (Expr Me)
+macroExpandExpr :: FullEnv -> Expr Ps -> Either CompileError (Expr Me)
 macroExpandExpr env expr = case expr of
   MacroExpr NoExt name trees -> do
     case Map.lookup name (feVars env) of
       Just (_, Macro (BuiltinMacro _ f)) -> do
-        tree <- f trees
-        macroExpandExpr env =<< treeToExpr env tree
-      Just _ -> Left "Attempting to macroexpand a non-macro"
-      Nothing -> Left "Attempting to macroexpand a nonexistent var"
+        tree <- first CEMiscError $ f trees
+        macroExpandExpr env =<< first CEMiscError (treeToExpr env tree)
+      Just _ -> Left $ CEMiscError "Attempting to macroexpand a non-macro"
+      Nothing -> Left $ CEMiscError "Attempting to macroexpand a nonexistent var"
 
   Val v -> return $ Val v
   Var v -> return $ Var v
@@ -48,11 +48,11 @@ macroExpandExpr env expr = case expr of
   meTyped = macroExpandTypedExpr env
   meBindings = traverse (\(n, e) -> (n,) <$> meTyped e)
 
-getOnlyExpr :: [Stmt Me] -> Either Text (Typed (Expr Me))
+getOnlyExpr :: [Stmt Me] -> Either CompileError (Typed (Expr Me))
 getOnlyExpr stmts = case getExprs stmts of
-  [] -> Left "Need an expr"
+  [] -> Left $ CEMiscError "Need an expr"
   [e] -> Right e
-  es -> Left $ "Can only have one expr, got: " <> tshow es
+  es -> Left $ CEMiscError $ "Can only have one expr, got: " <> tshow es
  where
   getExprs = mapMaybe $ \case
    Expr e -> Just e

@@ -6,13 +6,10 @@ import qualified Data.Text as Text
 import Test.Hspec
 import Text.InterpolatedString.Perl6 (q)
 
-import Defaults
+import App
 import Env
 import Eval
-import Parser
 import Syntax
-import TypeCheck
-import Gist
 
 -- | This is only partial equality, so don't implement it in the main codebase.
 instance Eq Val where
@@ -22,46 +19,13 @@ instance Eq Val where
 
 typeCheck :: String -> Either Text (PType Tc)
 typeCheck program = do
-   trees <- first tshow $ parseWholeFile "<str>" program
-   stmts <- first tshow $ treesToStmts defaultEnv trees
-   expanded <- first tshow $ traverse (macroExpandStmt defaultEnv) stmts
-
-   let tyDecls = flip mapMaybe expanded $ \case
-         TypeDecl d -> Just d
-         _ -> Nothing
-   newEnv1 <- first (tshow . prettyGist) $ declareTypes tyDecls defaultEnv
-
-   let varDecls = flip mapMaybe expanded $ \case
-         Def n e -> Just (n, e)
-         _ -> Nothing
-   varDeclsTC <-
-     first (tshow . prettyGist) $ typeCheckDefs (getInferEnv newEnv1) varDecls
-   newEnv <- first (tshow . prettyGist) $ declareVars varDeclsTC newEnv1
-
-   expr1 <- getOnlyExpr expanded
-   first (tshow . prettyGist) $ fst <$> runTypeCheck (getInferEnv newEnv) expr1
+  (ty, _, _) <- first tshow $ runSilentApp $ compileProgram "<str>" program
+  return ty
 
 runEval :: String -> Either Text Val
 runEval program = do
-   trees <- first tshow $ parseWholeFile "<str>" program
-   stmts <- first tshow $ treesToStmts defaultEnv trees
-   expanded <- first tshow $ traverse (macroExpandStmt defaultEnv) stmts
-
-   let tyDecls = flip mapMaybe expanded $ \case
-         TypeDecl d -> Just d
-         _ -> Nothing
-   newEnv1 <- first (tshow . prettyGist) $ declareTypes tyDecls defaultEnv
-
-   let varDecls = flip mapMaybe expanded $ \case
-         Def n e -> Just (n, e)
-         _ -> Nothing
-   varDeclsTC <-
-     first (tshow . prettyGist) $ typeCheckDefs (getInferEnv newEnv1) varDecls
-   newEnv <- first (tshow . prettyGist) $ declareVars varDeclsTC newEnv1
-
-   expr1 <- getOnlyExpr expanded
-   (_, tcExpr1) <- first tshow $ runTypeCheck (getInferEnv newEnv) expr1
-   eval1 (getSymbols newEnv) (rmType tcExpr1)
+  (_, env, expr) <- first tshow $ runSilentApp $ compileProgram "<str>" program
+  eval1 (getSymbols env) expr
 
 main :: IO ()
 main = hspec $ do

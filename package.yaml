@@ -24,7 +24,9 @@ default-extensions:
 - BangPatterns
 - DataKinds
 - DefaultSignatures
+- DeriveFunctor
 - DeriveGeneric
+- DerivingStrategies
 - FlexibleContexts
 - FlexibleInstances
 - GeneralizedNewtypeDeriving
@@ -34,6 +36,7 @@ default-extensions:
 - OverloadedStrings
 - QuasiQuotes
 - RecordWildCards
+- ScopedTypeVariables
 - StandaloneDeriving
 - TupleSections
 - TypeApplications
