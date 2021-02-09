@@ -182,6 +182,8 @@ treeToExpr env = \case
     t <- parseTyped (treeToExpr env) thenTree
     e <- parseTyped (treeToExpr env) elseTree
     return $ IfMatch i p t e
+  STTree (STBare "if~" : _) ->
+    Left "bad if~"
 
   STTree (STBare n : rest) | isMacro n -> return $ MacroExpr NoExt (Name n) rest
 

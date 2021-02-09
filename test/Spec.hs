@@ -361,22 +361,18 @@ main = hspec $ do
         |] `returns` vFloat 0
 
       [q|(type (Maybe $a) Nothing (Just $a))
-         (type (List $a) Nil (Cons $a (List $a)))
          (if~ (Just Nil) (Just Nil) 1 0)
         |] `returns` vFloat 1
 
       [q|(type (Maybe $a) Nothing (Just $a))
-         (type (List $a) Nil (Cons $a (List $a)))
          (if~ (Just (Cons 3 Nil)) (Just Nil) 1 0)
         |] `returns` vFloat 0
 
       [q|(type (Maybe $a) Nothing (Just $a))
-         (type (List $a) Nil (Cons $a (List $a)))
          (if~ (Just Nil) (Just (Cons $hd $tl)) (, hd tl) (, 0 Nil))
         |] `returns` Tag "," [vFloat 0, Tag "Nil" []]
 
       [q|(type (Maybe $a) Nothing (Just $a))
-         (type (List $a) Nil (Cons $a (List $a)))
          (if~ (Just (Cons 3 Nil)) (Just (Cons $hd $tl)) (, hd tl) (, 0 Nil))
         |] `returns` Tag "," [vFloat 3, Tag "Nil" []]
 
@@ -408,8 +404,8 @@ main = hspec $ do
         `returns` Tag "Point" [vFloat 1, vFloat 2, vFloat 3]
 
     it "(mutually) recursive type declarations" $ do
-      [q|(type List-Float Nil (Cons Float List-Float)) (Cons 3 Nil)|]
-        `returns` Tag "Cons" [vFloat 3, Tag "Nil" []]
+      [q|(type List-Float FNil (FCons Float List-Float)) (FCons 3 FNil)|]
+        `returns` Tag "FCons" [vFloat 3, Tag "FNil" []]
 
       [q|(type Foo (Foo Bar)) (type Bar X (Bar Foo)) (Bar (Foo (Bar (Foo X))))|]
         `returns` Tag "Bar" [Tag "Foo" [Tag "Bar" [Tag "Foo" [Tag "X" []]]]]
@@ -428,11 +424,11 @@ main = hspec $ do
       [q|(type (Maybe $a) Nothing (Just $a)) (Just 3)|]
         `returns` Tag "Just" [vFloat 3]
 
-      [q|(type (List $a) Nil (Cons $a (List $a))) (Cons 3 Nil)|]
-        `returns` Tag "Cons" [vFloat 3, Tag "Nil" []]
+      [q|(type (L $a) L (C $a (L $a))) (C 3 L)|]
+        `returns` Tag "C" [vFloat 3, Tag "L" []]
 
-      [q|(type (List $a) Nil (Cons $a (List $a))) (Cons 4 (Cons 3 Nil))|]
-        `returns` Tag "Cons" [vFloat 4, Tag "Cons" [vFloat 3, Tag "Nil" []]]
+      [q|(type (L $a) L (C $a (L $a))) (C 4 (C 3 L))|]
+        `returns` Tag "C" [vFloat 4, Tag "C" [vFloat 3, Tag "L" []]]
 
     it "allows constructors to not use all type variables" $ do
       [q|(type (E $l $r) (L $l) (R $r)) (, (L 3) (R "foo"))|]
@@ -458,8 +454,7 @@ main = hspec $ do
             (elim-Maybe (, 1 "blah") (, 2) (Just "boop")))
         |] `returns` Tag "," [ Tag "," [vFloat 1, vString "blah"]
                              , Tag "," [vFloat 2, vString "boop"] ]
-      [q|(type (List $a) Nil (Cons $a (List $a)))
-         (def sum (elim-List 0
+      [q|(def sum (elim-List 0
                              (λ (n l) (+ n (sum l)))))
          (, (sum Nil)
             (, (sum (Cons 3 Nil))

@@ -1,4 +1,4 @@
-module Eval (call, eval1, getOnlyExpr, macroExpandExpr, macroExpandStmt) where
+module Eval (call, eval1, getOnlyExpr, macroExpandExpr, macroExpandStmt, syntaxTreeToVal, valToSyntaxTrees) where
 
 import Prelude.Extra
 
@@ -12,8 +12,10 @@ macroExpandStmt :: FullEnv -> (Stmt Ps) -> Either CompileError (Stmt Me)
 macroExpandStmt env stmt = case stmt of
   MacroStmt NoExt name trees -> do
     case Map.lookup name (feVars env) of
-      Just (_, Macro (BuiltinMacro _ f)) -> do
-        tree <- first CEMiscError $ f trees
+      Just (_, Macro func) -> do
+        treeVal <- first CEMiscError $ call func $ syntaxTreesToVal trees
+        tree <- maybe (Left $ CEMiscError "Macro returned non-tree") pure
+          $ valToSyntaxTree treeVal
         macroExpandStmt env =<< first CEMiscError (treeToStmt env tree)
       Just _ -> Left $ CEMiscError "Attempting to macroexpand a non-macro"
       Nothing -> Left $ CEMiscError "Attempting to macroexpand a nonexistent var"
@@ -30,8 +32,10 @@ macroExpandExpr :: FullEnv -> Expr Ps -> Either CompileError (Expr Me)
 macroExpandExpr env expr = case expr of
   MacroExpr NoExt name trees -> do
     case Map.lookup name (feVars env) of
-      Just (_, Macro (BuiltinMacro _ f)) -> do
-        tree <- first CEMiscError $ f trees
+      Just (_, Macro func) -> do
+        treeVal <- first CEMiscError $ call func $ syntaxTreesToVal trees
+        tree <- maybe (Left $ CEMiscError "Macro returned non-tree") pure
+          $ valToSyntaxTree treeVal
         macroExpandExpr env =<< first CEMiscError (treeToExpr env tree)
       Just _ -> Left $ CEMiscError "Attempting to macroexpand a non-macro"
       Nothing -> Left $ CEMiscError "Attempting to macroexpand a nonexistent var"
@@ -47,6 +51,32 @@ macroExpandExpr env expr = case expr of
  where
   meTyped = macroExpandTypedExpr env
   meBindings = traverse (\(n, e) -> (n,) <$> meTyped e)
+
+syntaxTreeToVal :: SyntaxTree -> Val
+syntaxTreeToVal = \case
+  STString x -> Tag "STString" [Literal $ String x]
+  STFloat x  -> Tag "STFloat" [Literal $ Float x]
+  STBare x   -> Tag "STBare" [Literal $ String x]
+  STTree xs  -> Tag "STTree" $ syntaxTreeToVal <$> xs
+
+syntaxTreesToVal :: [SyntaxTree] -> Val
+syntaxTreesToVal = \case
+  [] -> Tag "Nil" []
+  t:ts -> Tag "Cons" [syntaxTreeToVal t, syntaxTreesToVal ts]
+
+valToSyntaxTree :: Val -> Maybe SyntaxTree
+valToSyntaxTree = \case
+  Tag "STString" [Literal (String x)] -> Just $ STString x
+  Tag "STFloat"  [Literal (Float x)]  -> Just $ STFloat x
+  Tag "STBare"   [Literal (String x)] -> Just $ STBare x
+  Tag "STTree"   xs                   -> STTree <$> mapM valToSyntaxTree xs
+  _ -> Nothing
+
+valToSyntaxTrees :: Val -> Maybe [SyntaxTree]
+valToSyntaxTrees = \case
+  Tag "Nil" [] -> Just []
+  Tag "Cons" [hd, tl] -> (:) <$> valToSyntaxTree hd <*> valToSyntaxTrees tl
+  _ -> Nothing
 
 getOnlyExpr :: [Stmt Me] -> Either CompileError (Typed (Expr Me))
 getOnlyExpr stmts = case getExprs stmts of

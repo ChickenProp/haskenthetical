@@ -11,7 +11,6 @@ module Syntax
   , Val(..)
   , Literal(..)
   , Builtin(..)
-  , Macro(..)
   , Typed(..)
   , TypeDecl(..)
   , MType(..)
@@ -143,11 +142,6 @@ data Builtin = Builtin' Name (Val -> Either Text Val)
 instance Show Builtin where
   show (Builtin' (Name n) _) = "<" ++ Text.unpack n ++ ">"
 
--- Just so that `Val` can derive instances
-data Macro = BuiltinMacro Name ([SyntaxTree] -> Either Text SyntaxTree)
-instance Show Macro where
-  show (BuiltinMacro (Name n) _) = "<macro:" ++ Text.unpack n ++ ">"
-
 -- | A helper type to let us construct `Builtin` with do notation. Use with
 -- `getArg` and `mkBuiltin`.
 --
@@ -206,7 +200,7 @@ data Val
   | Thunk Env (Expr Tc)
   | Clos Env Name (Expr Tc)
   | Tag Name [Val]
-  | Macro Macro
+  | Macro Val
   deriving (Show)
 
 instance Gist Val where

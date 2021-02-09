@@ -4,6 +4,7 @@ import Prelude.Extra
 import qualified Data.Map.Strict as Map
 
 import Env
+import Eval
 import Syntax
 
 rbb :: Name -> (Val -> Either Text Val) -> Either Text Val
@@ -39,22 +40,30 @@ herror :: Val -> Either Text Val
 herror (Literal (String e)) = Left e
 herror _ = Left "error only accepts string arguments"
 
-mfoldr :: [SyntaxTree] -> Either Text SyntaxTree
-mfoldr = \case
-  (op:arg1:arg2:rest) -> case rest of
-    [] -> return $ STTree [op, arg1, arg2]
-    _ -> do
-      recurs <- mfoldr (op:arg2:rest)
-      return $ STTree [op, arg1, recurs]
-  _ -> Left "Need at least an op and two args to fold"
+mfoldr :: Val -> Either Text Val
+mfoldr =
+  fmap syntaxTreeToVal . go
+    <=< maybe (Left "Not a SyntaxTree") Right . valToSyntaxTrees
+ where
+  go = \case
+    (op:arg1:arg2:rest) -> case rest of
+      [] -> return $ STTree [op, arg1, arg2]
+      _ -> do
+        recurs <- go (op:arg2:rest)
+        return $ STTree [op, arg1, recurs]
+    _ -> Left "Need at least an op and two args to fold"
 
-mfoldl :: [SyntaxTree] -> Either Text SyntaxTree
-mfoldl = \case
-  (op:arg1:arg2:rest) -> case rest of
-    [] -> return $ STTree [op, arg1, arg2]
-    _ -> do
-      mfoldl $ [op, STTree [op, arg1, arg2]] ++ rest
-  _ -> Left "Need at least an op and two args to fold"
+mfoldl :: Val -> Either Text Val
+mfoldl =
+  fmap syntaxTreeToVal . go
+    <=< maybe (Left "Not a SyntaxTree") Right . valToSyntaxTrees
+ where
+  go = \case
+    (op:arg1:arg2:rest) -> case rest of
+      [] -> return $ STTree [op, arg1, arg2]
+      _ -> do
+        go $ [op, STTree [op, arg1, arg2]] ++ rest
+    _ -> Left "Need at least an op and two args to fold"
 
 defaultVarEnv :: Map Name (PType Tc, Val)
 defaultVarEnv = fmap (\(x, y) -> (y, x)) $ Map.fromList
@@ -62,8 +71,8 @@ defaultVarEnv = fmap (\(x, y) -> (y, x)) $ Map.fromList
   , "-" ~~ bb "-" hminus ~~ Forall [] (tFloat +-> tFloat +-> tFloat)
   , "*" ~~ bb "*" htimes ~~ Forall [] (tFloat +-> tFloat +-> tFloat)
   , "error!" ~~ bb "error!" herror ~~ Forall [a'] (tString +-> a)
-  , "»" ~~ Macro (BuiltinMacro "»" mfoldr) ~~ Forall [] tMacro
-  , "«" ~~ Macro (BuiltinMacro "»" mfoldl) ~~ Forall [] tMacro
+  , "»" ~~ Macro (bb "»" mfoldr) ~~ Forall [] tMacro
+  , "«" ~~ Macro (bb "«" mfoldl) ~~ Forall [] tMacro
 
   -- Type `,` doesn't exist in `defaultTypeEnv`, but we do add it in
   -- `defaultEnv`.
@@ -95,6 +104,19 @@ defaultEnv =
         , TypeDecl' "+"
                     ["a", "b"]
                     [("Left", [tv "a"]), ("Right", [tv "b"])]
+        , TypeDecl' "List"
+                    ["a"]
+                    [ ("Nil", [])
+                    , ("Cons", [tv "a", TApp (tc "List") (tv "a")])
+                    ]
+        , TypeDecl' "SyntaxTree"
+                    []
+                    [ ("STBare", [tString])
+                    , ("STFloat", [tFloat])
+                    , ("STString", [tString])
+                    , ("STTree", [TApp (tc "List") (tc "SyntaxTree")])
+                    ]
         ]
     $ FullEnv { feVars = defaultVarEnv, feTypes = defaultTypeEnv }
  where tv n = TVar $ TV NoExt n
+       tc n = TCon $ TC NoExt n
