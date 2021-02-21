@@ -8,6 +8,7 @@ import Data.Bifunctor (first)
 import qualified Data.Char as Char
 import Data.List (foldl1')
 import qualified Data.Map.Strict as Map
+import qualified Data.Set as Set
 import qualified Data.Text as Text
 import Data.Void (Void)
 
@@ -65,7 +66,17 @@ stFloat =
   lexeme $ stFloat' <* notFollowedBy stBare
 
 stString :: Parser Text
-stString = Text.pack <$> between (symbol "\"") (symbol "\"") (many alphaNumChar)
+stString = Text.pack <$> (char '"' >> manyTill charLiteral (char '"'))
+
+charLiteral :: Parser Char
+charLiteral = label "literal char" $ anySingle >>= \case
+  '\\' -> anySingle >>= \case
+    '\\' -> pure '\\'
+    '"' -> pure '"'
+    'n' -> pure '\n'
+    x -> failure (Just $ Tokens $ x :| [])
+                 (Set.fromList $ Tokens . (:| []) <$> "\"\\n")
+  x -> pure x
 
 stBare :: Parser Text
 stBare = fmap Text.pack

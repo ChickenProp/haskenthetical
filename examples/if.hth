@@ -1,0 +1,40 @@
+# Define a multi-way `if` as a macro wrapping `if~`.
+
+(declarations
+  (type Bool False True)
+  (defmacro if
+    (λ ts
+      (if~ ts (Cons $else Nil)
+        else
+        (if~ ts (Cons $cond (Cons $then $rest))
+          (STTree (» Cons (STBare "if~")
+                          cond
+                          (STBare "True")
+                          then
+                          (STTree (Cons (STBare "if") rest))
+                          Nil))
+          (error! "`if` must have an odd number of args"))))))
+
+# And some obvious functions based on it. `not` could easily be defined as
+# `elim-Bool True False`, but `and` and `or` would be less efficient if defined
+# using that function. (Because at least right now it evaluates all of its
+# arguments, so doesn't get to short-circuit. The current versions still need to
+# evaluate all the elements of their inputs, but don't need to recurse over the
+# full list another time once the answer is known.)
+
+(def (: not (-> Bool Bool))
+  (λ b (if b False True)))
+
+(def (: and (-> (List Bool) Bool))
+  (elim-List True
+             (λ (hd tl) (if hd (and tl) False))))
+
+(def (: or (-> (List Bool) Bool))
+  (elim-List False
+             (λ (hd tl) (if hd True (or tl)))))
+
+(, (if True 3 0)
+   (, (if False "one" False "two" "three")
+      (, (if False "one" True "two" "three")
+         (, (and (» Cons True True (not True) Nil))
+            (or (» Cons False False (not False) Nil))))))
