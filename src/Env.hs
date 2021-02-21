@@ -2,6 +2,7 @@ module Env
   ( FullEnv(..)
   , InferEnv(..)
   , TypeEnv
+  , declareMacs
   , declareTypes
   , declareVars
   , getInferEnv
@@ -87,6 +88,20 @@ declareVars vars env = do
       newSymbols = getSymbols ret
 
   return ret
+
+declareMacs :: [(Name, Expr Tc)] -> FullEnv -> Either CompileError FullEnv
+declareMacs macs env = foldM go env macs
+ where
+  go env' (name, expr) = do
+    -- Not env' because macros declared in the same block can't reference each
+    -- other.
+    let val = Macro $ Thunk (getSymbols env) expr
+    newFeVars <-
+      insertUnique (CEMultiDeclareValue name)
+                   name
+                   (Forall [] tMacro, val)
+                   (feVars env')
+    return env' { feVars = newFeVars }
 
 declareTypes :: [TypeDecl] -> FullEnv -> Either CompileError FullEnv
 declareTypes decls env = do

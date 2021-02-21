@@ -14,7 +14,7 @@ import Data.Either as Export (isLeft)
 import Data.List as Export (foldl', group, sort)
 import Data.Generics.Product as Export (field, getField, setField)
 import Data.Map.Strict as Export (Map)
-import Data.Maybe as Export (mapMaybe)
+import Data.Maybe as Export (catMaybes, mapMaybe)
 import Data.Text as Export (Text)
 import Data.Void as Export (Void, absurd)
 import qualified Data.Text as Text

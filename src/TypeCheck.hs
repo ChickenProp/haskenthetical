@@ -1,6 +1,7 @@
 module TypeCheck
   ( runTypeCheck
   , typeCheckDefs
+  , typeCheckMacs
   ) where
 
 import Prelude.Extra
@@ -127,6 +128,27 @@ typeCheckDefs env defs = do
   letters :: [TVar Tc]
   letters =
     map (TV HType . Name . Text.pack) $ [1..] >>= flip replicateM ['a'..'z']
+
+typeCheckMacs
+  :: InferEnv
+  -> [(Name, Typed (Expr Me))]
+  -> Either CompileError [(Name, Expr Tc)]
+typeCheckMacs env defs = do
+  (inferredExprs, _, constraints) <- runRWST go env (InferState letters)
+  -- We know exactly what type we have, so there's no need to do substitution or
+  -- generalization. But by running the solver we verify that we actually do
+  -- have that type.
+  void $ solver1 constraints
+  return inferredExprs
+ where
+  letters :: [TVar Tc]
+  letters =
+    map (TV HType . Name . Text.pack) $ [1..] >>= flip replicateM ['a'..'z']
+  go = do
+    forM defs $ \(name , expr) -> do
+      (ty, expr') <- inferTypedExpr expr
+      unify ty $ tList tSyntaxTree +-> tSyntaxTree
+      return (name, rmType expr')
 
 ---
 

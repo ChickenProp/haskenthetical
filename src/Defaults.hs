@@ -41,9 +41,7 @@ herror (Literal (String e)) = Left e
 herror _ = Left "error only accepts string arguments"
 
 mfoldr :: Val -> Either Text Val
-mfoldr =
-  fmap syntaxTreeToVal . go
-    <=< maybe (Left "Not a SyntaxTree") Right . valToSyntaxTrees
+mfoldr = fmap syntaxTreeToVal . go <=< valToSyntaxTrees
  where
   go = \case
     (op:arg1:arg2:rest) -> case rest of
@@ -54,9 +52,7 @@ mfoldr =
     _ -> Left "Need at least an op and two args to fold"
 
 mfoldl :: Val -> Either Text Val
-mfoldl =
-  fmap syntaxTreeToVal . go
-    <=< maybe (Left "Not a SyntaxTree") Right . valToSyntaxTrees
+mfoldl = fmap syntaxTreeToVal . go <=< valToSyntaxTrees
  where
   go = \case
     (op:arg1:arg2:rest) -> case rest of

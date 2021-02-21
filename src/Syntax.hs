@@ -255,6 +255,7 @@ instance Gist (Expr p) where
 data Stmt (p :: Pass)
   = Expr (Typed (Expr p))
   | Def (Typed Name) (Typed (Expr p))
+  | DefMacro Name (Typed (Expr p))
   | TypeDecl TypeDecl
   | MacroStmt !(XMacroThing p) Name [SyntaxTree]
 
@@ -271,6 +272,7 @@ instance Gist (Stmt p) where
   gist = \case
     Expr e -> gist e
     Def n expr -> TD.App "Def" [gist n, gist expr]
+    DefMacro n expr -> TD.App "DefMacro" [gist n, gist expr]
     TypeDecl td -> gist td
     MacroStmt _ n trees -> TD.App "MacroStmt" [gist n, gist trees]
 
@@ -377,16 +379,22 @@ class BuiltinTypes a where
   tFloat :: MType a
   tString :: MType a
   tMacro :: MType a
+  tSyntaxTree :: MType a
+  tList :: MType a -> MType a
 
 instance BuiltinTypes Ps where
   tFloat = TCon (TC NoExt "Float")
   tString = TCon (TC NoExt "String")
   tMacro = TCon (TC NoExt "Macro")
+  tSyntaxTree = TCon (TC NoExt "SyntaxTree")
+  tList t = TCon (TC NoExt "List") `TApp` t
 
 instance BuiltinTypes Tc where
   tFloat = TCon (TC HType "Float")
   tString = TCon (TC HType "String")
   tMacro = TCon (TC HType "Macro")
+  tSyntaxTree = TCon (TC HType "SyntaxTree")
+  tList t = TCon (TC (HType :*-> HType) "List") `TApp` t
 
 data PType (p :: Pass) = Forall [TVar p] (MType p)
 deriving instance Eq (PType Ps)

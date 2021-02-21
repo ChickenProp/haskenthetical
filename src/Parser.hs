@@ -95,7 +95,14 @@ treeToStmt env = \case
     b <- parseTyped (treeToExpr env) body
     return $ Def n b
   STTree (STBare "def" : _) ->
-    Left "bad Def"
+    Left "bad def"
+
+  STTree [STBare "defmacro", name, body] -> do
+    n <- parseName name
+    b <- parseTyped (treeToExpr env) body
+    return $ DefMacro n b
+  STTree (STBare "defmacro" : _) ->
+    Left "bad defmacro"
 
   STTree (STBare "type" : typeCon : dataCons) -> do
     let parseTCon :: MType Ps -> Either Text (Name, [Name])

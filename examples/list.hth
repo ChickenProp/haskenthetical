@@ -1,0 +1,27 @@
+# This defines a macro `list` which works analagous to the common lisp function.
+# That is,
+#
+#     (list) -> Nil
+#     (list a) -> (Cons a Nil)
+#     (list a b) -> (Cons a (Cons b Nil))
+#
+# and so on.
+
+# Any `declarations` blocks are handled, one at a time in order, before the main
+# body of code. In each one, you can define types `(type ...)`, vars `(def ...)`
+# and macros `(defmacro ...)`, which will be available when parsing future
+# `declarations` blocks. This is specifically necessary for macros: you can use
+# types and vars in the same block you define them in, but not macros, because
+# we macroexpand before we know about them.
+
+(declarations
+  (defmacro list
+    (letrec ((go (elim-List
+                     (STBare "Nil")
+                     (λ (hd tl)
+                       (STTree (» Cons (STBare "Cons") hd (go tl) Nil))))))
+      go)))
+
+(, (list)
+   (, (list "foo" "bar")
+      (list (, 0 1) (, 2 3) (, 4 5))))

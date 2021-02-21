@@ -95,18 +95,24 @@ compileProgram fName src = runExceptT $ do
         expanded <- liftEither $ traverse (macroExpandStmt env) stmts
         lift $ logStepGist CSExpansion expanded
 
-        let tyDecls = flip mapMaybe expanded $ \case
-              TypeDecl d -> Just d
-              _ -> Nothing
+        let catMaybes3 (a, b, c) = (catMaybes a, catMaybes b, catMaybes c)
+            (tyDecls, varDecls, macDecls) =
+              catMaybes3 $ unzip3 $ flip map expanded $ \case
+                TypeDecl d      -> (Just d, Nothing, Nothing)
+                Def n e         -> (Nothing, Just (n, e), Nothing)
+                DefMacro n e    -> (Nothing, Nothing, Just (n, e))
+                Expr _          -> (Nothing, Nothing, Nothing)
+                MacroStmt v _ _ -> absurd v
+
         newEnv1 <- liftEither $ declareTypes tyDecls env
 
-        let varDecls = flip mapMaybe expanded $ \case
-              Def n e -> Just (n, e)
-              _ -> Nothing
         varDeclsTC <- liftEither $ typeCheckDefs (getInferEnv newEnv1) varDecls
-        newEnv <- liftEither $ declareVars varDeclsTC newEnv1
-        lift $ logStepGist CSEnvironment newEnv
+        newEnv2 <- liftEither $ declareVars varDeclsTC newEnv1
 
+        macDeclsTC <- liftEither $ typeCheckMacs (getInferEnv newEnv2) macDecls
+        newEnv <- liftEither $ declareMacs macDeclsTC newEnv2
+
+        lift $ logStepGist CSEnvironment newEnv
         return (expanded, newEnv)
 
   newEnv1 <- foldM (\e ts -> snd <$> updateEnv e ts) defaultEnv declGroups

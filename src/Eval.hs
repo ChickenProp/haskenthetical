@@ -1,4 +1,12 @@
-module Eval (call, eval1, getOnlyExpr, macroExpandExpr, macroExpandStmt, syntaxTreeToVal, valToSyntaxTrees) where
+module Eval
+  ( call
+  , eval1
+  , getOnlyExpr
+  , macroExpandExpr
+  , macroExpandStmt
+  , syntaxTreeToVal
+  , valToSyntaxTrees
+  ) where
 
 import Prelude.Extra
 
@@ -14,13 +22,13 @@ macroExpandStmt env stmt = case stmt of
     case Map.lookup name (feVars env) of
       Just (_, Macro func) -> do
         treeVal <- first CEMiscError $ call func $ syntaxTreesToVal trees
-        tree <- maybe (Left $ CEMiscError "Macro returned non-tree") pure
-          $ valToSyntaxTree treeVal
+        tree <- first CEMiscError $ valToSyntaxTree treeVal
         macroExpandStmt env =<< first CEMiscError (treeToStmt env tree)
       Just _ -> Left $ CEMiscError "Attempting to macroexpand a non-macro"
       Nothing -> Left $ CEMiscError "Attempting to macroexpand a nonexistent var"
   Expr te -> Expr <$> macroExpandTypedExpr env te
   Def n te -> Def n <$> macroExpandTypedExpr env te
+  DefMacro n te -> DefMacro n <$> macroExpandTypedExpr env te
   TypeDecl td -> return $ TypeDecl td
 
 macroExpandTypedExpr
@@ -33,9 +41,8 @@ macroExpandExpr env expr = case expr of
   MacroExpr NoExt name trees -> do
     case Map.lookup name (feVars env) of
       Just (_, Macro func) -> do
-        treeVal <- first CEMiscError $ call func $ syntaxTreesToVal trees
-        tree <- maybe (Left $ CEMiscError "Macro returned non-tree") pure
-          $ valToSyntaxTree treeVal
+        treeVal <- first CEMiscError $ call func (syntaxTreesToVal trees)
+        tree <- first CEMiscError $ valToSyntaxTree treeVal
         macroExpandExpr env =<< first CEMiscError (treeToExpr env tree)
       Just _ -> Left $ CEMiscError "Attempting to macroexpand a non-macro"
       Nothing -> Left $ CEMiscError "Attempting to macroexpand a nonexistent var"
@@ -57,26 +64,26 @@ syntaxTreeToVal = \case
   STString x -> Tag "STString" [Literal $ String x]
   STFloat x  -> Tag "STFloat" [Literal $ Float x]
   STBare x   -> Tag "STBare" [Literal $ String x]
-  STTree xs  -> Tag "STTree" $ syntaxTreeToVal <$> xs
+  STTree xs  -> Tag "STTree" [syntaxTreesToVal xs]
 
 syntaxTreesToVal :: [SyntaxTree] -> Val
 syntaxTreesToVal = \case
   [] -> Tag "Nil" []
   t:ts -> Tag "Cons" [syntaxTreeToVal t, syntaxTreesToVal ts]
 
-valToSyntaxTree :: Val -> Maybe SyntaxTree
-valToSyntaxTree = \case
-  Tag "STString" [Literal (String x)] -> Just $ STString x
-  Tag "STFloat"  [Literal (Float x)]  -> Just $ STFloat x
-  Tag "STBare"   [Literal (String x)] -> Just $ STBare x
-  Tag "STTree"   xs                   -> STTree <$> mapM valToSyntaxTree xs
-  _ -> Nothing
+valToSyntaxTree :: Val -> Either Text SyntaxTree
+valToSyntaxTree = elimThunk >=> \case
+  Tag "STString" [Literal (String x)] -> Right $ STString x
+  Tag "STFloat"  [Literal (Float x)]  -> Right $ STFloat x
+  Tag "STBare"   [Literal (String x)] -> Right $ STBare x
+  Tag "STTree"   [listVal]            -> STTree <$> valToSyntaxTrees listVal
+  _ -> Left "Lifting an incorrect type: SyntaxTree"
 
-valToSyntaxTrees :: Val -> Maybe [SyntaxTree]
+valToSyntaxTrees :: Val -> Either Text [SyntaxTree]
 valToSyntaxTrees = \case
-  Tag "Nil" [] -> Just []
+  Tag "Nil" [] -> Right []
   Tag "Cons" [hd, tl] -> (:) <$> valToSyntaxTree hd <*> valToSyntaxTrees tl
-  _ -> Nothing
+  _ -> Left "Lifting an incorrect type: List SyntaxTree"
 
 getOnlyExpr :: [Stmt Me] -> Either CompileError (Typed (Expr Me))
 getOnlyExpr stmts = case getExprs stmts of
@@ -87,6 +94,7 @@ getOnlyExpr stmts = case getExprs stmts of
   getExprs = mapMaybe $ \case
    Expr e -> Just e
    Def _ _ -> Nothing
+   DefMacro _ _ -> Nothing
    TypeDecl _ -> Nothing
    MacroStmt v _ _ -> absurd v
 
@@ -123,10 +131,10 @@ eval1 env@(Env syms) = elimThunk <=< \case
       Just bindings -> eval1 (Env $ Map.union (Map.fromList bindings) syms) (rmType thenE)
 
   MacroExpr v _ _ -> absurd v
- where
-  elimThunk :: Val -> Either Text Val
-  elimThunk (Thunk newenv e) = elimThunk =<< eval1 newenv e
-  elimThunk x = Right x
+
+elimThunk :: Val -> Either Text Val
+elimThunk (Thunk newenv e) = elimThunk =<< eval1 newenv e
+elimThunk x = Right x
 
 -- | If `val` matches `pat`, return Just a list of bound variables.
 patternMatch :: Pattern -> Val -> Maybe [(Name, Val)]
@@ -142,6 +150,9 @@ patternMatch pat val = case pat of
     _ -> Nothing
 
 call :: Val -> Val -> Either Text Val
+call (Thunk env expr) a = do
+  func <- eval1 env expr
+  call func a
 call (Builtin (Builtin' _ b)) a = b a
 call (Clos (Env syms) param body) a = do
   let syms2 = Map.insert param a syms
