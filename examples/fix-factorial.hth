@@ -1,3 +1,11 @@
+# This defines a fixed-point combinator, showing that Haskenthetical doesn't
+# need `letrec` to do recursion. (`def` can be used recursively, but that's not
+# necessary for this example.)
+#
+# I can't claim to understand it. It's based on the example at
+# http://rosettacode.org/wiki/Y_combinator#Elm, which I also can't claim to
+# understand, even though I wrote it myself.
+
 (def (: id (-> $a $a)) (λ x x))
 
 (type (Mu $a $b) (Roll (-> (Mu $a $b) (-> $a $b))))
