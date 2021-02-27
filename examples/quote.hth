@@ -1,4 +1,22 @@
 (declarations
+  (def (: List:map (-> (-> $a $b) (-> (List $a) (List $b))))
+    (λ f
+      (elim-List Nil (λ (hd tl) (Cons (f hd) (List:map f tl))))))
+)
+
+(declarations
+  # Due to a bug that I don't understand yet, this can't be in the same
+  # declarations block as List:map.
+
+  (def (: List:foldr (-> (-> $a (-> $b $b))
+                         (-> $b
+                             (-> (List $a)
+                                 $b))))
+    (λ (f init)
+      (elim-List init (λ (hd tl) (f hd (List:foldr f init tl))))))
+)
+
+(declarations
   (def (: STTree-2 (-> SyntaxTree (-> SyntaxTree SyntaxTree)))
     (λ (a b) (STTree (» Cons a b Nil))))
   (def (: STTree-3 (-> SyntaxTree (-> SyntaxTree (-> SyntaxTree SyntaxTree))))
@@ -12,11 +30,11 @@
            (q-float  (λ x (STTree-2 (STBare "STFloat") (STFloat x))))
            ((: q-tree (-> (List SyntaxTree) SyntaxTree))
              (λ x
-               (letrec ((go (elim-List (STBare "Nil")
-                                       (λ (hd tl) (STTree-3 (STBare "Cons")
-                                                            (q-any hd)
-                                                            (go tl))))))
-                 (STTree-2 (STBare "STTree") (go x)))))
+               (STTree-2 (STBare "STTree")
+                         (List:foldr (λ (hd tl)
+                                       (STTree-3 (STBare "Cons") hd tl))
+                                     (STBare "Nil")
+                                     (List:map q-any x)))))
            ((: q-any (-> SyntaxTree SyntaxTree))
              (elim-SyntaxTree q-bare q-float q-string q-tree)))
         (if~ ts (Cons $t Nil)
@@ -24,11 +42,35 @@
           (error! "Can only quote one thing"))))))
 
 (declarations
+  (defmacro qq
+    (λ ts
+      (letrec
+          ((qq-bare   (λ x (STTree-2 (STBare "STBare") (STString x))))
+           (qq-string (λ x (STTree-2 (STBare "STString") (STString x))))
+           (qq-float  (λ x (STTree-2 (STBare "STFloat") (STFloat x))))
+           ((: qq-tree (-> (List SyntaxTree) SyntaxTree))
+             (λ x
+               (if~ x (Cons (STBare "↑") (Cons $arg Nil))
+                 arg
+                 (if~ x (Cons (STBare "↑") $other)
+                   (error! "Bad splice")
+                   (STTree-2 (STBare "STTree")
+                             (List:foldr (λ (hd tl)
+                                           (STTree-3 (STBare "Cons") hd tl))
+                                         (STBare "Nil")
+                                         (List:map qq-any x)))))))
+           ((: qq-any (-> SyntaxTree SyntaxTree))
+             (elim-SyntaxTree qq-bare qq-float qq-string qq-tree)))
+        (if~ ts (Cons $t Nil)
+          (qq-any t)
+          (error! "Can only quote one thing"))))))
+
+(declarations
   (defmacro list
     (letrec ((go (elim-List
                      (quote Nil)
                      (λ (hd tl)
-                       (STTree (» Cons (quote Cons) hd (go tl) Nil))))))
+                       (qq (Cons (↑ hd) (↑ (go tl))))))))
       go)))
 
 (declarations
@@ -38,6 +80,7 @@
       (if~ ts (Cons $else Nil)
         else
         (if~ ts (Cons $cond (Cons $then $rest))
+          # (qq (if~ (↑ cond) True (↑ then) (if (↑↑ rest))))
           (STTree (» Cons (quote if~)
                           cond
                           (quote True)

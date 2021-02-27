@@ -284,12 +284,12 @@ main = hspec $ do
       pendingWith "Not yet implemented"
 
       [q|(def id (λ x x))
-         (def (: (-> Float Float) id-Float) id)
+         (def (: id-Float (-> Float Float)) id)
          (, (id "blah") (, (id 3) (id-Float 3)))
         |] `hasType` Forall [] (tString +:* (tFloat +:* tFloat))
 
       [q|(def id (λ x x))
-         (def id-Float (: (-> Float Float) id))
+         (def id-Float (: id (-> Float Float)))
          (, (id "blah") (, (id 3) (id-Float 3)))
         |] `hasType` Forall [] (tString +:* (tFloat +:* tFloat))
 
