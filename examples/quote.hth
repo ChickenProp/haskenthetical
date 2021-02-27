@@ -1,0 +1,51 @@
+(declarations
+  (def (: STTree-2 (-> SyntaxTree (-> SyntaxTree SyntaxTree)))
+    (λ (a b) (STTree (» Cons a b Nil))))
+  (def (: STTree-3 (-> SyntaxTree (-> SyntaxTree (-> SyntaxTree SyntaxTree))))
+    (λ (a b c) (STTree (» Cons a b c Nil))))
+
+  (defmacro quote
+    (λ ts
+      (letrec
+          ((q-bare   (λ x (STTree-2 (STBare "STBare") (STString x))))
+           (q-string (λ x (STTree-2 (STBare "STString") (STString x))))
+           (q-float  (λ x (STTree-2 (STBare "STFloat") (STFloat x))))
+           ((: q-tree (-> (List SyntaxTree) SyntaxTree))
+             (λ x
+               (letrec ((go (elim-List (STBare "Nil")
+                                       (λ (hd tl) (STTree-3 (STBare "Cons")
+                                                            (q-any hd)
+                                                            (go tl))))))
+                 (STTree-2 (STBare "STTree") (go x)))))
+           ((: q-any (-> SyntaxTree SyntaxTree))
+             (elim-SyntaxTree q-bare q-float q-string q-tree)))
+        (if~ ts (Cons $t Nil)
+          (q-any t)
+          (error! "Can only quote one thing"))))))
+
+(declarations
+  (defmacro list
+    (letrec ((go (elim-List
+                     (quote Nil)
+                     (λ (hd tl)
+                       (STTree (» Cons (quote Cons) hd (go tl) Nil))))))
+      go)))
+
+(declarations
+  (type Bool False True)
+  (defmacro if
+    (λ ts
+      (if~ ts (Cons $else Nil)
+        else
+        (if~ ts (Cons $cond (Cons $then $rest))
+          (STTree (» Cons (quote if~)
+                          cond
+                          (quote True)
+                          then
+                          (STTree (Cons (quote if) rest))
+                          Nil))
+          (error! "`if` must have an odd number of args"))))))
+
+(list (, "a" (list 1 2))
+      (, "b" (list (if True 2 3) (if False 3 4) 4))
+      (, "c" (list 5 6 7)))
