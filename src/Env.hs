@@ -177,8 +177,10 @@ declareTypeEliminator (TypeDecl' { tdName, tdVars, tdConstructors }) env = do
                           typeElimName (teType, typeElimVal) (feVars env)
   return env { feVars = newVars }
  where
+  resultTVar :: TVar Tc
+  resultTVar = TV HType "%a"
   resultType :: MType Tc
-  resultType = TVar (TV HType "%a")
+  resultType = TVar resultTVar
 
   valKind = foldr (\_ a -> HType :*-> a) HType tdVars
   allVars = TV HType <$> tdVars
@@ -195,7 +197,7 @@ declareTypeEliminator (TypeDecl' { tdName, tdVars, tdConstructors }) env = do
   typeElimType = do
     mt <- foldr (+->) (valType +-> resultType)
             <$> mapM (conElimType . snd) tdConstructors
-    return $ Forall allVars mt
+    return $ Forall (resultTVar : allVars) mt
 
   typeElimName :: Name
   typeElimName = "elim-" <> tdName

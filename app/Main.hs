@@ -6,11 +6,11 @@ import Control.Monad.Except (liftEither, runExceptT)
 import qualified Data.Text.IO as Text
 import qualified GHC.IO.Encoding as Encoding
 import qualified Options.Applicative as O
-import Shower (printer)
 
 import App
 import Env
 import Eval
+import Gist
 import Syntax
 
 data CmdLine = CmdLine
@@ -68,7 +68,7 @@ doCmdLine :: CmdLine -> IO ()
 doCmdLine (CmdLine {..}) = runExceptT go >>= \case
   Left err -> Text.putStrLn err
   Right Nothing -> return ()
-  Right (Just res) -> printer res
+  Right (Just res) -> print (prettyGist res)
  where
   go = do
    (fName, src) <- case program of

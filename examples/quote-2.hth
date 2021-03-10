@@ -1,0 +1,194 @@
+(declarations
+  (def (: << (-> (-> $b $c) (-> (-> $a $b) (-> $a $c))))
+    (λ (f g x) (f (g x))))
+
+  (def (: ++ (-> (List $a) (-> (List $a) (List $a))))
+    (λ (a b)
+      (elim-List b (λ (a1 as) (Cons a1 (++ as b))) a)))
+
+  (def (: +:map (-> (-> $a $b) (-> (+ $x $a) (+ $x $b))))
+    (λ f (elim-+ (λ x (Left x)) (λ a (Right (f a))))))
+
+  (def (: +:map-m (-> (-> $a (+ $b $c)) (-> (List $a) (+ $b (List $c)))))
+    (λ f
+      (elim-List (Right Nil)
+                 (λ (hd tl)
+                   # This ugly bit is just `(:) <$> f hd <*> +:map-m f tl`
+                   (let ((f-hd (f hd)))
+                     (if~ f-hd (Left $x)
+                       f-hd
+                       (if~ f-hd (Right $x)
+                         (let ((recurs (+:map-m f tl)))
+                           (if~ recurs (Left $y)
+                             recurs
+                             (if~ recurs (Right $y)
+                               (Right (Cons x y))
+                               (error! "impossible"))))
+                         (error! "impossible"))))))))
+)
+
+(declarations
+  (def (: List:map (-> (-> $a $b) (-> (List $a) (List $b))))
+    (λ f
+      (elim-List Nil (λ (hd tl) (Cons (f hd) (List:map f tl))))))
+
+  (def (: List:foldr (-> (-> $a (-> $b $b))
+                         (-> $b
+                             (-> (List $a)
+                                 $b))))
+    (λ (f init)
+      (elim-List init (λ (hd tl) (f hd (List:foldr f init tl))))))
+)
+
+(declarations
+  (type (Maybe $a) Nothing (Just $a))
+  (def (: Maybe:map (-> (-> $a $b) (-> (Maybe $a) (Maybe $b))))
+    (λ f (elim-Maybe Nothing (<< Just f))))
+)
+
+(declarations
+  (type Bool False True)
+  (defmacro if
+    (λ ts
+      (if~ ts (Cons $else Nil)
+        else
+        (if~ ts (Cons $cond (Cons $then $rest))
+          (STTree (» Cons (STBare "if~")
+                          cond
+                          (STBare "True")
+                          then
+                          (STTree (Cons (STBare "if") rest))
+                          Nil))
+          (error! "`if` must have an odd number of args")))))
+)
+
+(declarations
+  (def (: all (-> (-> $a Bool) (-> (List $a) Bool)))
+    (λ f
+      (elim-List True
+                 (λ (hd tl) (if (f hd) (all f tl) False)))))
+)
+
+
+(declarations
+  (def (: STTree-2 (-> SyntaxTree (-> SyntaxTree SyntaxTree)))
+    (λ (a b) (STTree (» Cons a b Nil))))
+  (def (: STTree-3 (-> SyntaxTree (-> SyntaxTree (-> SyntaxTree SyntaxTree))))
+    (λ (a b c) (STTree (» Cons a b c Nil))))
+
+  (def (: quote-fun (-> SyntaxTree SyntaxTree))
+    (letrec
+        ((q-bare   (λ x (STTree-2 (STBare "STBare") (STString x))))
+         (q-string (λ x (STTree-2 (STBare "STString") (STString x))))
+         (q-float  (λ x (STTree-2 (STBare "STFloat") (STFloat x))))
+         ((: q-tree (-> (List SyntaxTree) SyntaxTree))
+           (λ x
+             (STTree-2 (STBare "STTree")
+                       (List:foldr (λ (hd tl)
+                                     (STTree-3 (STBare "Cons") hd tl))
+                                   (STBare "Nil")
+                                   (List:map quote-fun x))))))
+      (elim-SyntaxTree q-bare q-float q-string q-tree)))
+
+  (defmacro quote
+    (λ ts
+      (if~ ts (Cons $t Nil)
+        (quote-fun t)
+        (error! "Can only quote one thing"))))
+)
+
+(declarations
+  (type QQTree
+    (QQLeaf SyntaxTree)
+    (QQ-↑ SyntaxTree)
+    (QQ-↑↑ SyntaxTree)
+    (QQNode (List QQTree)))
+
+  (def (: parse-QQTree (-> SyntaxTree (+ String QQTree)))
+    (letrec (((: immediate-leaves (-> (List QQTree) (Maybe (List SyntaxTree))))
+                (elim-List
+                  (Just Nil)
+                  (λ (hd tl)
+                    (if~ hd (QQLeaf $t)
+                      (Maybe:map (Cons t) (immediate-leaves tl))
+                      Nothing))))
+             ((: build-tree (-> (List QQTree) QQTree))
+                (λ qs (elim-Maybe (QQNode qs)
+                                  (<< QQLeaf STTree)
+                                  (immediate-leaves qs)))))
+      (λ t
+        (if~ t (STTree $tree)
+          (if~ tree (Cons (STBare "↑") $rest)
+            (if~ rest (Cons $arg Nil)
+              (Right (QQ-↑ arg))
+              (Left "↑ given more than one arg"))
+            (if~ tree (Cons (STBare "↑↑") $rest)
+              (if~ rest (Cons $arg Nil)
+                (Right (QQ-↑↑ arg))
+                (Left "↑↑ given more than one arg"))
+              (+:map build-tree (+:map-m parse-QQTree tree))))
+          (Right (QQLeaf t))))))
+
+  (def (: unQQ-root (-> QQTree (+ String SyntaxTree)))
+    (elim-QQTree
+      (<< Right quote-fun)
+      Right
+      (λ _ (Left "Cannot unQQ a ↑↑ at the root"))
+      (λ qs
+        (elim-+
+          Left
+          (λ ts
+            (Right (STTree-2 (quote STTree)
+                             (List:foldr (λ (hd tl)
+                                           (STTree-3 (quote ++) hd tl))
+                                         (quote Nil)
+                                         ts))))
+          (+:map-m unQQ-nested qs)))))
+
+  (def (: unQQ-nested (-> QQTree (+ String SyntaxTree)))
+    (let ((st-list1 (λ x (STTree (» Cons (quote Cons) x (quote Nil) Nil)))))
+      (elim-QQTree
+        (» << Right st-list1 quote-fun)
+        (<< Right st-list1)
+        Right
+        (λ qs
+          (elim-+
+            Left
+            (λ ts
+              (Right (st-list1 (STTree-2 (quote STTree)
+                               (List:foldr (λ (hd tl)
+                                             (STTree-3 (quote ++) hd tl))
+                                           (quote Nil)
+                                           ts)))))
+            (+:map-m unQQ-nested qs))))))
+
+  (def (: qq-fun (-> SyntaxTree (+ String SyntaxTree)))
+    (λ t (elim-+ Left unQQ-root (parse-QQTree t))))
+
+  (defmacro qq
+    (λ ts
+      (if~ ts (Cons $t Nil)
+        (elim-+ error! (λ x x) (qq-fun t))
+        (error! "Can only qq one thing"))))
+)
+
+(declarations
+  (defmacro list
+    (letrec ((go (elim-List
+                     (quote Nil)
+                     (λ (hd tl)
+                       (qq (Cons (↑ hd) (↑ (go tl))))))))
+      go))
+)
+
+(declarations
+  (defmacro if-qq
+    (λ ts
+      (if~ ts (Cons $else Nil)
+        else
+        (if~ ts (Cons $cond (Cons $then $rest))
+          (qq (if~ (↑ cond) True (↑ then) (if-qq (↑↑ rest))))
+          (error! "`if` must have an odd number of args")))))
+)
+
+(list 1 (if-qq False 2 True 3 False 4 5) 3)
