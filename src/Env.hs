@@ -7,6 +7,7 @@ module Env
   , declareVars
   , getInferEnv
   , getSymbols
+  , ps2tc_MType
   , ps2tc_PType
   ) where
 

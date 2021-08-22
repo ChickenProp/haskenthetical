@@ -55,6 +55,7 @@ dependencies:
 - mtl
 - pretty
 - shower
+- split
 - text
 - transformers
 - tree-diff

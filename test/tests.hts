@@ -1,0 +1,11 @@
+# This file is valid Haskenthetical syntax, but not directly interpreted as
+# Haskenthetical. Rather, it's split at the `# # #` lines, and each segment
+# represents a test of some aspect of the Haskenthetical compiler.
+
+# # #
+
+(has-type 3 Float)
+
+# # #
+
+(has-type "foo" String)

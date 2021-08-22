@@ -4,6 +4,7 @@ module App
   , PrintingAppT(..)
   , SilentApp(..)
   , compileProgram
+  , compileProgramFromTrees
   ) where
 
 import Prelude.Extra
@@ -79,7 +80,13 @@ compileProgram
 compileProgram fName src = runExceptT $ do
   trees <- liftEither $ parseWholeFile fName src
   lift $ logStep CSSyntaxTree $ shower trees
+  ret <- lift $ compileProgramFromTrees trees
+  liftEither ret
 
+compileProgramFromTrees
+  :: AppMonad m
+  => [SyntaxTree] -> m (Either CompileError (PType Tc, FullEnv, Expr Tc))
+compileProgramFromTrees trees = runExceptT $ do
   let topLevel = map treeToTopLevel trees
       (declGroups, otherTopLevel) =
         partitionEithers $ flip map topLevel $ \case

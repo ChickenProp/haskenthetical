@@ -2,6 +2,7 @@
 
 import Prelude.Extra
 
+import Data.List.Split (splitWhen)
 import qualified Data.Text as Text
 import Test.Hspec
 import Text.InterpolatedString.Perl6 (q)
@@ -9,6 +10,7 @@ import Text.InterpolatedString.Perl6 (q)
 import App
 import Env
 import Eval
+import Parser
 import Syntax
 
 -- | This is only partial equality, so don't implement it in the main codebase.
@@ -31,6 +33,32 @@ main :: IO ()
 main = hspec $ do
   let vFloat = Literal . Float
       vString = Literal . String
+
+  it "From tests.hts" $ do
+    allTestContents <- readFile "test/tests.hts"
+    let eachTestContents =
+          map unlines $ splitWhen (== "# # #") $ lines allTestContents
+
+    let treeses =
+          either (error . Text.unpack . ppCompileError) id
+          .   parseWholeFile "<src>"
+          <$> eachTestContents
+
+    forM_ treeses $ \trees -> case trees of
+      [] -> return ()
+      [STTree [STBare "has-type", testExpr, expectedType]] -> do
+        (actualType, tyEnv) <-
+          case runSilentApp $ compileProgramFromTrees [testExpr] of
+                Left err -> error $ Text.unpack $ ppCompileError err
+                Right (ty, env, _) -> return (ty, feTypes env)
+        let psExpectedType =
+              either (error . Text.unpack) id $ parseMType expectedType
+            tcExpectedType = either (error . Text.unpack . ppCompileError) id
+              $ ps2tc_MType tyEnv psExpectedType
+
+        actualType `shouldBe` Forall [] tcExpectedType
+
+      _ -> error "Malformed test"
 
   describe "Type checking" $ do
     let hasType :: String -> PType Tc -> Expectation

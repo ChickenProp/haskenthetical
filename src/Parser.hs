@@ -1,6 +1,11 @@
 module Parser
-  (parseWholeFile, treeToExpr, treeToStmt, treesToStmts, treeToTopLevel)
-where
+  ( parseMType
+  , parseWholeFile
+  , treeToExpr
+  , treeToStmt
+  , treesToStmts
+  , treeToTopLevel
+  ) where
 
 import Prelude.Extra
 
