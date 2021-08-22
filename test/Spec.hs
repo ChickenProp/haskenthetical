@@ -5,7 +5,7 @@ import Prelude.Extra
 import Data.List.Split (splitWhen)
 import qualified Data.Text as Text
 import Test.Hspec
-import Text.InterpolatedString.Perl6 (q)
+import Text.InterpolatedString.Perl6 (q, qc)
 
 import App
 import Env
@@ -34,29 +34,38 @@ main = hspec $ do
   let vFloat = Literal . Float
       vString = Literal . String
 
-  it "From tests.hts" $ do
-    allTestContents <- readFile "test/tests.hts"
-    let eachTestContents =
-          map unlines $ splitWhen (== "# # #") $ lines allTestContents
+  describe "From tests.hts" $ do
+    allTestContents <- runIO $ readFile "test/tests.hts"
+    -- Annotate each line with the number of the one before. Then the first line
+    -- in a group has the line number of the `# # #`.
+    let eachTestContents :: [(Int, String)] =
+          mapMaybe
+            (\case
+              [] -> Nothing
+              l@((n, _):_) -> Just (n, unlines $ snd <$> l)
+            )
+            $ splitWhen (("# # #" ==) . snd)
+            $ zip [0..] (lines allTestContents)
 
-    let treeses =
-          either (error . Text.unpack . ppCompileError) id
-          .   parseWholeFile "<src>"
+    let treeses :: [(Int, [SyntaxTree])] =
+          second (either (error . Text.unpack . ppCompileError) id
+          .   parseWholeFile "<src>")
           <$> eachTestContents
 
-    forM_ treeses $ \trees -> case trees of
+    forM_ treeses $ \(lineNo, trees) -> case trees of
       [] -> return ()
       [STTree [STBare "has-type", testExpr, expectedType]] -> do
-        (actualType, tyEnv) <-
-          case runSilentApp $ compileProgramFromTrees [testExpr] of
-                Left err -> error $ Text.unpack $ ppCompileError err
-                Right (ty, env, _) -> return (ty, feTypes env)
-        let psExpectedType =
-              either (error . Text.unpack) id $ parseMType expectedType
-            tcExpectedType = either (error . Text.unpack . ppCompileError) id
-              $ ps2tc_MType tyEnv psExpectedType
+        it [qc|has-type at L{lineNo}|] $ do
+          (actualType, tyEnv) <-
+            case runSilentApp $ compileProgramFromTrees [testExpr] of
+                  Left err -> error $ Text.unpack $ ppCompileError err
+                  Right (ty, env, _) -> return (ty, feTypes env)
+          let psExpectedType =
+                either (error . Text.unpack) id $ parseMType expectedType
+              tcExpectedType = either (error . Text.unpack . ppCompileError) id
+                $ ps2tc_MType tyEnv psExpectedType
 
-        actualType `shouldBe` Forall [] tcExpectedType
+          actualType `shouldBe` Forall [] tcExpectedType
 
       _ -> error "Malformed test"
 
