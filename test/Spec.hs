@@ -55,7 +55,9 @@ main = hspec $ do
 
     let testFuncs = Map.fromList
           [ ("has-type", testHasType)
-          , ("tc-fails-with", testTcFailsWith)
+          , ("returns", testReturns)
+          , ("compile-fails-with", testCompileFailsWith)
+          , ("eval-fails-with", testEvalFailsWith)
           ]
 
     forM_ treeses $ \(lineNo, trees) -> case trees of
@@ -499,8 +501,8 @@ testHasType [] = error "has-type needs args"
 testHasType (expectedType : testExprs) = do
   (actualType, tyEnv) <-
     case runSilentApp $ compileProgramFromTrees testExprs of
-          Left err -> error $ Text.unpack $ ppCompileError err
-          Right (ty, env, _) -> return (ty, feTypes env)
+      Left err -> error $ Text.unpack $ ppCompileError err
+      Right (ty, env, _) -> return (ty, feTypes env)
   let psExpectedType =
         either (error . Text.unpack) id $ parseMType expectedType
       tcExpectedType = either (error . Text.unpack . ppCompileError) id
@@ -508,9 +510,33 @@ testHasType (expectedType : testExprs) = do
 
   actualType `shouldBe` Forall [] tcExpectedType
 
-testTcFailsWith :: [SyntaxTree] -> IO ()
-testTcFailsWith (STBare failure : testExprs) =
+testReturns :: [SyntaxTree] -> IO ()
+testReturns [] = error "returns needs args"
+testReturns (expectedValTree : testExprs) = do
+  let fakeEvalTree = \case
+        STFloat x -> Literal $ Float x
+        STString x -> Literal $ String x
+        STBare x -> Tag (Name x) []
+        STTree (STBare hd : rest) -> Tag (Name hd) $ fakeEvalTree <$> rest
+        STTree _ -> error "bad fake eval"
+  case runSilentApp $ compileProgramFromTrees testExprs of
+    Left err -> error $ Text.unpack $ ppCompileError err
+    Right (_, env, expr) -> case eval1 (getSymbols env) expr of
+      Left err -> error $ Text.unpack err
+      Right val -> val `shouldBe` fakeEvalTree expectedValTree
+
+testCompileFailsWith :: [SyntaxTree] -> IO ()
+testCompileFailsWith (STBare failure : testExprs) =
   case runSilentApp $ compileProgramFromTrees testExprs of
     Left err -> show err `shouldStartWith` Text.unpack failure
     Right _ -> expectationFailure "Expected Left"
-testTcFailsWith _ = error "malformed tc-fails-with"
+testCompileFailsWith _ = error "malformed compile-fails-with"
+
+testEvalFailsWith :: [SyntaxTree] -> IO ()
+testEvalFailsWith (STString failure : testExprs) =
+  case runSilentApp $ compileProgramFromTrees testExprs of
+    Left err -> error $ Text.unpack $ ppCompileError err
+    Right (_, env, expr) -> case eval1 (getSymbols env) expr of
+      Left err -> err `shouldBe` failure
+      Right _ -> expectationFailure "Expected Left"
+testEvalFailsWith _ = error "malformed eval-fails-with"

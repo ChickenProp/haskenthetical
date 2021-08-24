@@ -16,7 +16,7 @@
 
 # # #
 
-(tc-fails-with CEUnificationFail (λ f (, (f 3) (f ""))))
+(compile-fails-with CEUnificationFail (λ f (, (f 3) (f ""))))
 
 # # #
 
@@ -30,6 +30,26 @@
 
 # # #
 
-(tc-fails-with CEUnificationFail
+(compile-fails-with CEUnificationFail
   (type (Maybe $a) Nothing (Just $a))
   (if~ (Just "foo") (Just (: $x Float)) 3 1))
+
+# # #
+
+(eval-fails-with "foo" (error! "foo"))
+
+# # #
+
+(returns 1 (if~ 0 0 1 (error! "foo")))
+
+# # #
+
+(eval-fails-with "foo" (if~ 0 1 1 (error! "foo")))
+
+# # #
+
+(returns (, 0 (, 3 8))
+  (def sum (elim-List 0 (λ (n l) (+ n (sum l)))))
+  (, (sum Nil)
+     (, (sum (Cons 3 Nil))
+        (sum (Cons 3 (Cons 5 Nil))))))
