@@ -16,6 +16,10 @@
 
 # # #
 
+(tc-fails-with CEUnificationFail (λ f (, (f 3) (f ""))))
+
+# # #
+
 (has-type Float (+ 1 2))
 
 # # #
@@ -23,3 +27,9 @@
 (has-type (, Float Float)
   (def const3 (λ x 3))
   (, (const3 "foo") (const3 4)))
+
+# # #
+
+(tc-fails-with CEUnificationFail
+  (type (Maybe $a) Nothing (Just $a))
+  (if~ (Just "foo") (Just (: $x Float)) 3 1))

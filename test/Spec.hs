@@ -67,6 +67,12 @@ main = hspec $ do
 
           actualType `shouldBe` Forall [] tcExpectedType
 
+      [STTree (STBare "tc-fails-with" : STBare failure : testExprs)] -> do
+        it [qc|tc-fails-with at L{lineNo}|] $ do
+          case runSilentApp $ compileProgramFromTrees testExprs of
+            Left err -> show err `shouldStartWith` Text.unpack failure
+            Right _ -> expectationFailure "Expected Left"
+
       _ -> error "Malformed test"
 
   describe "Type checking" $ do
