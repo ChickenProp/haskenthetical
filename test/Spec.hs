@@ -54,10 +54,10 @@ main = hspec $ do
 
     forM_ treeses $ \(lineNo, trees) -> case trees of
       [] -> return ()
-      [STTree [STBare "has-type", testExpr, expectedType]] -> do
+      [STTree (STBare "has-type" : expectedType : testExprs)] -> do
         it [qc|has-type at L{lineNo}|] $ do
           (actualType, tyEnv) <-
-            case runSilentApp $ compileProgramFromTrees [testExpr] of
+            case runSilentApp $ compileProgramFromTrees testExprs of
                   Left err -> error $ Text.unpack $ ppCompileError err
                   Right (ty, env, _) -> return (ty, feTypes env)
           let psExpectedType =

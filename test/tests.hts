@@ -4,8 +4,22 @@
 
 # # #
 
-(has-type 3 Float)
+(has-type Float 3)
 
 # # #
 
-(has-type "foo" String)
+(has-type String "foo")
+
+# # #
+
+(has-type (-> Float Float) (+ 1))
+
+# # #
+
+(has-type Float (+ 1 2))
+
+# # #
+
+(has-type (, Float Float)
+  (def const3 (λ x 3))
+  (, (const3 "foo") (const3 4)))
