@@ -3,6 +3,7 @@
 import Prelude.Extra
 
 import Data.List.Split (splitWhen)
+import qualified Data.Map.Strict as Map
 import qualified Data.Text as Text
 import Test.Hspec
 import Text.InterpolatedString.Perl6 (q, qc)
@@ -52,27 +53,16 @@ main = hspec $ do
           .   parseWholeFile "<src>")
           <$> eachTestContents
 
+    let testFuncs = Map.fromList
+          [ ("has-type", testHasType)
+          , ("tc-fails-with", testTcFailsWith)
+          ]
+
     forM_ treeses $ \(lineNo, trees) -> case trees of
       [] -> return ()
-      [STTree (STBare "has-type" : expectedType : testExprs)] -> do
-        it [qc|has-type at L{lineNo}|] $ do
-          (actualType, tyEnv) <-
-            case runSilentApp $ compileProgramFromTrees testExprs of
-                  Left err -> error $ Text.unpack $ ppCompileError err
-                  Right (ty, env, _) -> return (ty, feTypes env)
-          let psExpectedType =
-                either (error . Text.unpack) id $ parseMType expectedType
-              tcExpectedType = either (error . Text.unpack . ppCompileError) id
-                $ ps2tc_MType tyEnv psExpectedType
-
-          actualType `shouldBe` Forall [] tcExpectedType
-
-      [STTree (STBare "tc-fails-with" : STBare failure : testExprs)] -> do
-        it [qc|tc-fails-with at L{lineNo}|] $ do
-          case runSilentApp $ compileProgramFromTrees testExprs of
-            Left err -> show err `shouldStartWith` Text.unpack failure
-            Right _ -> expectationFailure "Expected Left"
-
+      [STTree (STBare testFunc : args)] -> case Map.lookup testFunc testFuncs of
+        Nothing -> error [qc|No test function {testFunc}|]
+        Just f -> it [qc|{testFunc} at L{lineNo}|] $ f args
       _ -> error "Malformed test"
 
   describe "Type checking" $ do
@@ -503,3 +493,24 @@ main = hspec $ do
             (, (sum (Cons 3 Nil))
                (sum (Cons 3 (Cons 5 Nil)))))
         |] `returns` Tag "," [vFloat 0, Tag "," [vFloat 3, vFloat 8]]
+
+testHasType :: [SyntaxTree] -> IO ()
+testHasType [] = error "has-type needs args"
+testHasType (expectedType : testExprs) = do
+  (actualType, tyEnv) <-
+    case runSilentApp $ compileProgramFromTrees testExprs of
+          Left err -> error $ Text.unpack $ ppCompileError err
+          Right (ty, env, _) -> return (ty, feTypes env)
+  let psExpectedType =
+        either (error . Text.unpack) id $ parseMType expectedType
+      tcExpectedType = either (error . Text.unpack . ppCompileError) id
+        $ ps2tc_MType tyEnv psExpectedType
+
+  actualType `shouldBe` Forall [] tcExpectedType
+
+testTcFailsWith :: [SyntaxTree] -> IO ()
+testTcFailsWith (STBare failure : testExprs) =
+  case runSilentApp $ compileProgramFromTrees testExprs of
+    Left err -> show err `shouldStartWith` Text.unpack failure
+    Right _ -> expectationFailure "Expected Left"
+testTcFailsWith _ = error "malformed tc-fails-with"
