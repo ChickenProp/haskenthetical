@@ -2,6 +2,7 @@
 
 import Prelude.Extra
 
+import qualified Control.Exception as E
 import Data.List.Split (splitWhen)
 import qualified Data.Map.Strict as Map
 import qualified Data.Text as Text
@@ -53,18 +54,9 @@ main = hspec $ do
           .   parseWholeFile "<src>")
           <$> eachTestContents
 
-    let testFuncs = Map.fromList
-          [ ("has-type", testHasType)
-          , ("returns", testReturns)
-          , ("compile-fails-with", testCompileFailsWith)
-          , ("eval-fails-with", testEvalFailsWith)
-          ]
-
     forM_ treeses $ \(lineNo, trees) -> case trees of
       [] -> return ()
-      [STTree (STBare testFunc : args)] -> case Map.lookup testFunc testFuncs of
-        Nothing -> error [qc|No test function {testFunc}|]
-        Just f -> it [qc|{testFunc} at L{lineNo}|] $ f args
+      [STTree (STBare testFunc : args)] -> htsExample lineNo testFunc args
       _ -> error "Malformed test"
 
   describe "Type checking" $ do
@@ -496,6 +488,25 @@ main = hspec $ do
                (sum (Cons 3 (Cons 5 Nil)))))
         |] `returns` Tag "," [vFloat 0, Tag "," [vFloat 3, vFloat 8]]
 
+htsExample :: Int -> Text -> [SyntaxTree] -> Spec
+htsExample lineNo testFunc args =
+  it [qc|{testFunc} at L{lineNo}|] $ runHtsTest testFunc args
+
+runHtsTest :: Text -> [SyntaxTree] -> IO ()
+runHtsTest testFunc args = do
+  case Map.lookup testFunc testFuncs of
+    Nothing -> error [qc|No test function {testFunc}|]
+    Just f -> f args
+ where
+  testFuncs = Map.fromList
+    [ ("has-type", testHasType)
+    , ("returns", testReturns)
+    , ("compile-fails-with", testCompileFailsWith)
+    , ("eval-fails-with", testEvalFailsWith)
+    , ("pending", testPending)
+    ]
+
+
 testHasType :: [SyntaxTree] -> IO ()
 testHasType [] = error "has-type needs args"
 testHasType (expectedType : testExprs) = do
@@ -529,7 +540,7 @@ testCompileFailsWith :: [SyntaxTree] -> IO ()
 testCompileFailsWith (STBare failure : testExprs) =
   case runSilentApp $ compileProgramFromTrees testExprs of
     Left err -> show err `shouldStartWith` Text.unpack failure
-    Right _ -> expectationFailure "Expected Left"
+    Right _ -> expectationFailure "Compilation didn't fail"
 testCompileFailsWith _ = error "malformed compile-fails-with"
 
 testEvalFailsWith :: [SyntaxTree] -> IO ()
@@ -538,5 +549,14 @@ testEvalFailsWith (STString failure : testExprs) =
     Left err -> error $ Text.unpack $ ppCompileError err
     Right (_, env, expr) -> case eval1 (getSymbols env) expr of
       Left err -> err `shouldBe` failure
-      Right _ -> expectationFailure "Expected Left"
+      Right _ -> expectationFailure "Evaluation didn't fail"
 testEvalFailsWith _ = error "malformed eval-fails-with"
+
+-- | Make sure pending tests actually do fail, so we don't forget to update them
+-- if we make them work.
+testPending :: [SyntaxTree] -> IO ()
+testPending [STString reason, STTree (STBare testFunc : args)] =
+  E.try (runHtsTest testFunc args) >>= \case
+    Left (_ :: E.SomeException) -> pendingWith $ Text.unpack reason
+    Right () -> expectationFailure "Pending test actually succeeded"
+testPending _ = error "malformed pending"

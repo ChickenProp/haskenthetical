@@ -36,6 +36,13 @@
 
 # # #
 
+(pending "Not yet implemented"
+  (compile-fails-with Something-Not-Decided-Yet
+    (type (Maybe $a) Nothing (Just $a))
+    (if~ Just Just 1 0)))
+
+# # #
+
 (eval-fails-with "foo" (error! "foo"))
 
 # # #
