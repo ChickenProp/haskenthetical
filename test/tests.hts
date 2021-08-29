@@ -1,45 +1,415 @@
 # This file is valid Haskenthetical syntax, but not directly interpreted as
 # Haskenthetical. Rather, it's split at the `# # #` lines, and each segment
 # represents a test of some aspect of the Haskenthetical compiler.
+#
+# We need the `# # #` to get line numbers of tests. If in future the parser
+# returns source locations, they'd be unnecessary. But we might want to extend
+# the syntax of this file, e.g. for textual substitutions, in which case we'd
+# need them to know where to run the parser.
 
 # # #
+# accepts constant Int
 
 (has-type Float 3)
 
 # # #
+# accepts constant String
 
 (has-type String "foo")
 
 # # #
+# accepts lambda
+
+(pending "don't yet support type vars in this test"
+  (has-type (-> $a $a) (λ x x)))
+
+# # #
+# applies functions
 
 (has-type (-> Float Float) (+ 1))
 
 # # #
-
-(compile-fails-with CEUnificationFail (λ f (, (f 3) (f ""))))
-
-# # #
+# applies functions
 
 (has-type Float (+ 1 2))
 
 # # #
+# rejects poly typed lambda args
+
+(compile-fails-with CEUnificationFail (λ f (, (f 3) (f ""))))
+
+# # #
+# accepts poly typed let args
+
+(has-type (, (, Float Float) (, String String))
+  (let ((f (λ x (, x x)))) (, (f 3) (f ""))))
+
+# # #
+# accepts unused function arguments
 
 (has-type (, Float Float)
   (def const3 (λ x 3))
   (, (const3 "foo") (const3 4)))
 
 # # #
+# accepts unused function arguments
+(has-type (, Float Float)
+  (def const (λ (x y) x))
+  (, (const 3 "foo") (const 3 4)))
+
+# # #
+# accepts typed constants
+
+(has-type Float (: 3 Float))
+
+# # #
+# accepts typed constants
+
+(has-type String (: "foo" String))
+
+# # #
+# accepts typed expressions
+
+(has-type (-> Float (-> Float Float))
+  (: + (-> Float (-> Float Float))))
+
+# # #
+# accepts typed expressions
+
+(has-type (-> Float Float)
+  (: (+ 1) (-> Float Float)))
+
+# # #
+# accepts typed expressions
+
+(has-type (-> Float (+ Float Float))
+  (: (λ x (if~ x 0 (Left 0) (Right 0)))
+     (-> Float (+ Float Float))))
+
+# # #
+# accepts typed expressions
+
+(has-type (, Float String)
+  (: (, 2 "bar") (, Float String)))
+
+# # #
+# accepts types in patterns
+
+(has-type Float
+  (type (Maybe $a) Nothing (Just $a))
+  (if~ Nothing (: Nothing (Maybe Float)) 3 1))
+
+# # #
+# accepts types in patterns
+
+(has-type Float
+  (type (Maybe $a) Nothing (Just $a))
+  (if~ Nothing (: Nothing (Maybe String)) 3 1))
+
+# # #
+# accepts types in patterns
+
+(has-type Float
+  (type (Maybe $a) Nothing (Just $a))
+  (if~ (Just 3) (: Nothing (Maybe Float)) 3 1))
+
+# # #
+# accepts types in patterns
+
+(compile-fails-with CEUnificationFail
+  (type (Maybe $a) Nothing (Just $a))
+  (if~ (Just "foo") (: Nothing (Maybe Float)) 3 1))
+
+# # #
+# accepts types in patterns
+
+(has-type Float
+  (type (Maybe $a) Nothing (Just $a))
+  (if~ Nothing (: (Just $x) (Maybe Float)) 3 1))
+
+# # #
+# accepts types in patterns
+
+(has-type Float
+  (type (Maybe $a) Nothing (Just $a))
+  (if~ Nothing (Just (: $x Float)) 3 1))
+
+# # #
+# accepts types in patterns
+
+(has-type Float
+  (type (Maybe $a) Nothing (Just $a))
+  (if~ (Just 3) (Just (: $x Float)) 3 1))
+
+# # #
+# accepts types in patterns
+
+(has-type Float
+  (type (Maybe $a) Nothing (Just $a))
+  (if~ (Just 3) (Just (: 3 Float)) 3 1))
+
+# # #
+# accepts types in patterns
 
 (compile-fails-with CEUnificationFail
   (type (Maybe $a) Nothing (Just $a))
   (if~ (Just "foo") (Just (: $x Float)) 3 1))
 
 # # #
+# accepts types in patterns
+
+(compile-fails-with CEUnificationFail
+  (type (Maybe $a) Nothing (Just $a))
+  (if~ (Just "foo") (Just (: 3 Float)) 3 1))
+
+# # #
+# accepts types in patterns
+
+(compile-fails-with CEUnificationFail
+  (type (Maybe $a) Nothing (Just $a))
+  (if~ (Just "foo") (Just (: "foo" Float)) 3 1))
+
+# # #
+# rejects incorrectly typed constants
+
+(compile-fails-with CEUnificationFail (: 3 String))
+
+# # #
+# rejects incorrectly typed constants
+
+(compile-fails-with CEUnificationFail (: "foo" Float))
+
+# # #
+# rejects incorrectly typed constants
+
+(compile-fails-with CEKindMismatch (: 3 (, Float)))
+
+# # #
+# rejects incorrectly typed pattern bindings
+
+(compile-fails-with CEUnificationFail
+  (type (Maybe $a) Nothing (Just $a))
+  (if~ 3 Nothing 1 0))
+
+# # #
+# rejects incorrectly typed lambda args
+
+(compile-fails-with CEUnificationFail
+  (λ ((: a String)) (+ a 1)))
+
+# # #
+# rejects pattern matching on incomplete constructors
 
 (pending "Not yet implemented"
   (compile-fails-with Something-Not-Decided-Yet
     (type (Maybe $a) Nothing (Just $a))
     (if~ Just Just 1 0)))
+
+# # #
+# rejects pattern matching on non-constructors
+
+(pending "Not yet implemented."
+  (compile-fails-with Something-Not-Decided-Yet
+    (type (Maybe $a) Nothing (Just $a))
+    (def my-nothing Nothing)
+    (if~ Nothing my-nothing 1 0)))
+
+# # #
+# Allows declaring types as not their most general possibility
+
+(compile-fails-with CEUnificationFail
+  (def (: id-Float (-> Float Float)) (λ x x))
+  (id-Float "blah"))
+
+# # #
+# Allows declaring types as not their most general possibility
+
+(compile-fails-with CEUnificationFail
+  (def id-Float (: (λ x x) (-> Float Float)))
+  (id-Float "blah"))
+
+# # #
+# Allows declaring types as not their most general possibility
+
+(has-type (, String (, Float Float))
+  (let ((id (λ x x))
+        ((: id-Float (-> Float Float)) id))
+    (, (id "blah") (, (id 3) (id-Float 3)))))
+
+# # #
+# Allows declaring types as not their most general possibility
+
+(has-type (, String (, Float Float))
+  (let ((id (λ x x))
+        (id-Float (: id (-> Float Float))))
+    (, (id "blah") (, (id 3) (id-Float 3)))))
+
+# # #
+# Allows declaring types as not their most general possibility
+
+(compile-fails-with CEUnificationFail
+  (let (((: id-Float (-> Float Float)) (λ x x)))
+    (id-Float "blah")))
+
+# # #
+# Allows declaring types as not their most general possibility
+
+(compile-fails-with CEUnificationFail
+  (let ((id-Float (: (λ x x) (-> Float Float))))
+    (id-Float "blah")))
+
+# # #
+# Type declarations with variables
+
+(has-type String
+  (def (: id (-> $a $a)) (λ x x))
+  (id "blah"))
+
+# # #
+# Type declarations with variables
+
+(has-type String
+  (let (((: id (-> $a $a)) (λ x x)))
+    (id "blah")))
+
+# # #
+# Type declarations with variables
+
+(compile-fails-with CEDeclarationTooGeneral
+  (let (((: id (-> String $a)) (λ x x)))
+    (id "blah")))
+
+# # #
+# Type declarations with variables
+
+(compile-fails-with CEDeclarationTooGeneral
+  (let (((: id (-> $a String)) (λ x x)))
+    (id "blah")))
+
+# # #
+# Type declarations with variables
+
+(compile-fails-with CEDeclarationTooGeneral
+  (def (: id (-> String $a)) (λ x x))
+  (id "blah"))
+
+# # #
+# Type declarations with variables
+
+(compile-fails-with CEDeclarationTooGeneral
+  (def (: id (-> $a String)) (λ x x))
+  (id "blah"))
+
+# # #
+# Type declarations with variables
+
+(has-type String
+  (def id (λ x x))
+  ((: id (-> $a $a)) "foo"))
+
+# # #
+# Type declarations with variables
+
+(compile-fails-with CEDeclarationTooGeneral
+  (def id (λ x x))
+  ((: id (-> String $a)) "foo"))
+
+# # #
+# Type declarations with variables
+
+(compile-fails-with CEDeclarationTooGeneral
+  (def id (λ x x))
+  ((: id (-> $a String)) "foo"))
+
+# # #
+# Type declarations with variables
+
+(compile-fails-with CEDeclarationTooGeneral
+  (def id (λ x x))
+  (: (id "blah") $a))
+
+# # #
+# Type declarations with variables
+
+(compile-fails-with CEDeclarationTooGeneral
+  (type (Id $a) (Id $a))
+  (if~ (Id "foo") (: $a $a) a (error! "any")))
+
+# # #
+# Type declarations with variables
+
+(compile-fails-with CEDeclarationTooGeneral
+  (type (Id $a) (Id $a))
+  (if~ (Id "foo") (: $a (Id $a)) a (error! "any")))
+
+# # #
+# Type declarations with variables
+
+(compile-fails-with CEDeclarationTooGeneral
+  (if~ (Left "foo") (: $a (+ $a $b)) a (error! "any")))
+
+# # #
+# Type declarations with variables
+
+(has-type String
+  (if~ (Left "foo") (: (Left $a) (+ String $b)) a (error! "any")))
+
+# # #
+# Calculates minimally recursive binding groups
+
+# This is necessary because, when typechecking `(letrec ((n a)) e)`, `n`
+# is only available as a monotype when evaluating `a`. Or as "Typing
+# Haskell in Haskell" puts it, we need to
+#
+# > ensure that each variable is used with the same type at every
+# > occurrence within the defining list of bindings. (Lifting this
+# > restriction makes type inference undecidable (Henglein, 1993; Kfoury
+# > et al., 1993).)
+#
+# http://web.cecs.pdx.edu/~mpj/thih/thih.pdf (p. 33)
+#
+# We can demonstrate the need for this in Haskell as well, by introducing
+# a mutual dependency into the group:
+#
+# (1)    let a1 x = x
+#            a2 = (a1 :: Float -> Float) }
+#        in a1 ""
+# (2)    let a1 x = const x (a2 3)
+#            a2 = (a1 :: Float -> Float)
+#        in a1 ""
+# (3)    let a1 :: a -> a
+#            a1 x = const x (a2 3)
+#            a2 = (a1 :: Float -> Float)
+#        in a1 ""
+# (4)    let a1 x = const x (a2 3)
+#            a2 :: Float -> Float
+#            a2 = a1
+#        in a1 ""
+#
+# (1) typechecks, because we calculate the type of `a1` without looking
+# at `a2`. But (2) doesn't, because we can't do that. Thus, a1 is given
+# the monotype `Float -> Float` which doesn't generalize very far. (3)
+# and (4) typecheck because bindings with explicit type declarations can
+# be placed in a separate dependency group.
+#
+# (Not sure I'm going to implement this any time soon.)
+
+(pending "Not yet implemented"
+  (has-type (, String (, Float Float))
+    (def id (λ x x))
+    (def (: id-Float (-> Float Float)) id)
+    (, (id "blah") (, (id 3) (id-Float 3)))))
+
+# # #
+# Calculates minimally recursive binding groups
+
+# (See above)
+
+(pending "Not yet implemented"
+  (has-type (, String (, Float Float))
+    (def id (λ x x))
+    (def id-Float (: id (-> Float Float)))
+    (, (id "blah") (, (id 3) (id-Float 3)))))
 
 # # #
 

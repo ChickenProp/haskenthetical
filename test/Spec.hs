@@ -21,11 +21,6 @@ instance Eq Val where
   Tag n1 vs1 == Tag n2 vs2 = n1 == n2 && vs1 == vs2
   _ == _ = False
 
-typeCheck :: String -> Either Text (PType Tc)
-typeCheck program = do
-  (ty, _, _) <- first tshow $ runSilentApp $ compileProgram "<str>" program
-  return ty
-
 runEval :: String -> Either Text Val
 runEval program = do
   (_, env, expr) <- first tshow $ runSilentApp $ compileProgram "<str>" program
@@ -49,277 +44,19 @@ main = hspec $ do
             $ splitWhen (("# # #" ==) . snd)
             $ zip [0..] (lines allTestContents)
 
-    let treeses :: [(Int, [SyntaxTree])] =
-          second (either (error . Text.unpack . ppCompileError) id
-          .   parseWholeFile "<src>")
-          <$> eachTestContents
+    let treeses :: [(Int, Either CompileError [SyntaxTree])] =
+          second (parseWholeFile "<src>") <$> eachTestContents
 
     forM_ treeses $ \(lineNo, trees) -> case trees of
-      [] -> return ()
-      [STTree (STBare testFunc : args)] -> htsExample lineNo testFunc args
-      _ -> error "Malformed test"
-
-  describe "Type checking" $ do
-    let hasType :: String -> PType Tc -> Expectation
-        prog `hasType` t = typeCheck prog `shouldBe` Right t
-
-    let tcFails :: String -> Expectation
-        tcFails prog = typeCheck prog `shouldSatisfy` isLeft
-
-        tcFailsWith :: String -> String -> Expectation
-        tcFailsWith prog err = case typeCheck prog of
-          Left x -> Text.unpack x `shouldStartWith` err
-          Right _ -> expectationFailure "Expected Left"
-
-    let tvh :: Name -> TVar Tc
-        tvh = TV HType
-
-        ttvh :: Name -> MType Tc
-        ttvh = TVar . tvh
-
-    it "accepts constants" $ do
-      "3" `hasType` Forall [] tFloat
-      [q|"foo"|] `hasType` Forall [] tString
-
-    it "accepts lambdas" $ do
-      "(λ x x)" `hasType` Forall [tvh "a"] (ttvh "a" +-> ttvh "a")
-
-    it "applies functions" $ do
-      "(+ 1)" `hasType` Forall [] (tFloat +-> tFloat)
-      "(+ 1 2)" `hasType` Forall [] tFloat
-
-    it "rejects poly typed lambda args" $ do
-      tcFails [q|(λ f (, (f 3) (f "")))|]
-
-    it "accepts poly typed let args" $ do
-      [q|(let ((f (λ x (, x x)))) (, (f 3) (f "")))|]
-        `hasType` Forall [] ((tFloat +:* tFloat) +:* (tString +:* tString))
-
-    it "accepts unused function arguments" $ do
-      [q|(def const3 (λ x 3))
-         (, (const3 "foo") (const3 4))
-        |] `hasType` Forall [] (tFloat +:* tFloat)
-
-      [q|(def const (λ (x y) x))
-         (, (const 3 "foo") (const 3 4))
-        |] `hasType` Forall [] (tFloat +:* tFloat)
-
-    it "accepts typed constants" $ do
-      "(: 3 Float)" `hasType` Forall [] tFloat
-      [q|(: "foo" String)|] `hasType` Forall [] tString
-
-    it "accepts typed expressions" $ do
-      "(: + (-> Float (-> Float Float)))"
-        `hasType` Forall [] (tFloat +-> tFloat +-> tFloat)
-      "(: (+ 1) (-> Float Float))" `hasType` Forall [] (tFloat +-> tFloat)
-      [q|(: (λ x (if~ x 0 (Left 0) (Right 0)))
-            (-> Float (+ Float Float)))
-        |] `hasType` Forall [] (tFloat +-> (tFloat +:+ tFloat))
-      [q|(: (, 2 "bar") (, Float String))|]
-        `hasType` Forall [] (tFloat +:* tString)
-
-    it "accepts types in patterns" $ do
-      [q|(type (Maybe $a) Nothing (Just $a))
-         (if~ Nothing (: Nothing (Maybe Float)) 3 1)
-        |] `hasType` Forall [] tFloat
-
-      [q|(type (Maybe $a) Nothing (Just $a))
-         (if~ Nothing (: Nothing (Maybe String)) 3 1)
-        |] `hasType` Forall [] tFloat
-
-      [q|(type (Maybe $a) Nothing (Just $a))
-         (if~ (Just 3) (: Nothing (Maybe Float)) 3 1)
-        |] `hasType` Forall [] tFloat
-
-      [q|(type (Maybe $a) Nothing (Just $a))
-         (if~ (Just "foo") (: Nothing (Maybe Float)) 3 1)
-        |] `tcFailsWith` "CEUnificationFail"
-
-      [q|(type (Maybe $a) Nothing (Just $a))
-         (if~ Nothing (: (Just $x) (Maybe Float)) 3 1)
-        |] `hasType` Forall [] tFloat
-
-      [q|(type (Maybe $a) Nothing (Just $a))
-         (if~ Nothing (Just (: $x Float)) 3 1)
-        |] `hasType` Forall [] tFloat
-
-      [q|(type (Maybe $a) Nothing (Just $a))
-         (if~ (Just 3) (Just (: $x Float)) 3 1)
-        |] `hasType` Forall [] tFloat
-
-      [q|(type (Maybe $a) Nothing (Just $a))
-         (if~ (Just 3) (Just (: 3 Float)) 3 1)
-        |] `hasType` Forall [] tFloat
-
-      [q|(type (Maybe $a) Nothing (Just $a))
-         (if~ (Just "foo") (Just (: $x Float)) 3 1)
-        |] `tcFailsWith` "CEUnificationFail"
-
-      [q|(type (Maybe $a) Nothing (Just $a))
-         (if~ (Just "foo") (Just (: 3 Float)) 3 1)
-        |] `tcFailsWith` "CEUnificationFail"
-
-      [q|(type (Maybe $a) Nothing (Just $a))
-         (if~ (Just "foo") (Just (: "foo" Float)) 3 1)
-        |] `tcFailsWith` "CEUnificationFail"
-
-    it "rejects incorrectly typed constants" $ do
-      "(: 3 String)" `tcFailsWith` "CEUnificationFail"
-      [q|(: "foo" Float)|] `tcFailsWith` "CEUnificationFail"
-      "(: 3 (, Float))" `tcFailsWith` "CEKindMismatch"
-
-    it "rejects incorrectly typed pattern bindings" $ do
-      [q|(type (Maybe $a) Nothing (Just $a))
-         (if~ 3 Nothing 1 0)
-        |] `tcFailsWith` "CEUnificationFail"
-
-    it "rejects incorrectly typed lambda args" $ do
-      "(λ ((: a String)) (+ a 1))" `tcFailsWith` "CEUnificationFail"
-
-    it "rejects pattern matching on incomplete constructors" $ do
-      pendingWith "Not yet implemented."
-      [q|(type (Maybe $a) Nothing (Just $a))
-         (if~ Just Just 1 0)
-        |] `tcFailsWith` "Something"
-
-    it "rejects pattern matching on non-constructors" $ do
-      pendingWith "Not yet implemented."
-      [q|(type (Maybe $a) Nothing (Just $a))
-         (def my-nothing Nothing)
-         (if~ Nothing my-nothing 1 0)
-        |] `tcFailsWith` "Something"
-
-    it "Allows declaring types as not their most general possibility" $ do
-      [q|(def (: id-Float (-> Float Float)) (λ x x))
-         (id-Float "blah")
-        |] `tcFailsWith` "CEUnificationFail"
-
-      [q|(def id-Float (: (λ x x) (-> Float Float)))
-         (id-Float "blah")
-        |] `tcFailsWith` "CEUnificationFail"
-
-      [q|(let ((id (λ x x))
-               ((: id-Float (-> Float Float)) id))
-           (, (id "blah") (, (id 3) (id-Float 3))))
-        |] `hasType` Forall [] (tString +:* (tFloat +:* tFloat))
-
-      [q|(let ((id (λ x x))
-               (id-Float (: id (-> Float Float))))
-           (, (id "blah") (, (id 3) (id-Float 3))))
-        |] `hasType` Forall [] (tString +:* (tFloat +:* tFloat))
-
-      [q|(let (((: id-Float (-> Float Float)) (λ x x)))
-           (id-Float "blah"))
-        |] `tcFailsWith` "CEUnificationFail"
-
-      [q|(let ((id-Float (: (λ x x) (-> Float Float))))
-           (id-Float "blah"))
-        |] `tcFailsWith` "CEUnificationFail"
-
-    it "Type declarations with variables" $ do
-      [q|(def (: id (-> $a $a)) (λ x x))
-         (id "blah")
-        |] `hasType` Forall [] tString
-
-      [q|(let (((: id (-> $a $a)) (λ x x)))
-           (id "blah"))
-        |] `hasType` Forall [] tString
-
-      [q|(let (((: id (-> String $a)) (λ x x)))
-           (id "blah"))
-        |] `tcFailsWith` "CEDeclarationTooGeneral"
-
-      [q|(let (((: id (-> $a String)) (λ x x)))
-           (id "blah"))
-        |] `tcFailsWith` "CEDeclarationTooGeneral"
-
-      [q|(def (: id (-> String $a)) (λ x x))
-         (id "blah")
-        |] `tcFailsWith` "CEDeclarationTooGeneral"
-
-      [q|(def (: id (-> $a String)) (λ x x))
-         (id "blah")
-        |] `tcFailsWith` "CEDeclarationTooGeneral"
-
-      [q|(def id (λ x x))
-         ((: id (-> $a $a)) "foo")
-        |] `hasType` Forall [] tString
-
-      [q|(def id (λ x x))
-         ((: id (-> String $a)) "foo")
-        |] `tcFailsWith` "CEDeclarationTooGeneral"
-
-      [q|(def id (λ x x))
-         ((: id (-> $a String)) "foo")
-        |] `tcFailsWith` "CEDeclarationTooGeneral"
-
-      [q|(def id (λ x x))
-         (: (id "blah") $a)
-        |] `tcFailsWith` "CEDeclarationTooGeneral"
-
-      [q|(type (Id $a) (Id $a))
-         (if~ (Id "foo") (: $a $a) a (error! "any"))
-        |] `tcFailsWith` "CEDeclarationTooGeneral"
-
-      [q|(type (Id $a) (Id $a))
-         (if~ (Id "foo") (: $a (Id $a)) a (error! "any"))
-        |] `tcFailsWith` "CEDeclarationTooGeneral"
-
-      [q|(if~ (Left "foo") (: $a (+ $a $b)) a (error! "any"))
-        |] `tcFailsWith` "CEDeclarationTooGeneral"
-
-      [q|(if~ (Left "foo") (: (Left $a) (+ String $b)) a (error! "any"))
-        |] `hasType` Forall [] tString
-
-    it "Calculates minimally recursive binding groups" $ do
-      -- This is necessary because, when typechecking `(letrec ((n a)) e)`, `n`
-      -- is only available as a monotype when evaluating `a`. Or as "Typing
-      -- Haskell in Haskell" puts it, we need to
-      --
-      -- > ensure that each variable is used with the same type at every
-      -- > occurrence within the defining list of bindings. (Lifting this
-      -- > restriction makes type inference undecidable (Henglein, 1993; Kfoury
-      -- > et al., 1993).)
-      --
-      -- http://web.cecs.pdx.edu/~mpj/thih/thih.pdf (p. 33)
-      --
-      -- We can demonstrate the need for this in Haskell as well, by introducing
-      -- a mutual dependency into the group:
-      --
-      -- (1)    let a1 x = x
-      --            a2 = (a1 :: Float -> Float) }
-      --        in a1 ""
-      -- (2)    let a1 x = const x (a2 3)
-      --            a2 = (a1 :: Float -> Float)
-      --        in a1 ""
-      -- (3)    let a1 :: a -> a
-      --            a1 x = const x (a2 3)
-      --            a2 = (a1 :: Float -> Float)
-      --        in a1 ""
-      -- (4)    let a1 x = const x (a2 3)
-      --            a2 :: Float -> Float
-      --            a2 = a1
-      --        in a1 ""
-      --
-      -- (1) typechecks, because we calculate the type of `a1` without looking
-      -- at `a2`. But (2) doesn't, because we can't do that. Thus, a1 is given
-      -- the monotype `Float -> Float` which doesn't generalize very far. (3)
-      -- and (4) typecheck because bindings with explicit type declarations can
-      -- be placed in a separate dependency group.
-      --
-      -- (Not sure I'm going to implement this any time soon.)
-      pendingWith "Not yet implemented"
-
-      [q|(def id (λ x x))
-         (def (: id-Float (-> Float Float)) id)
-         (, (id "blah") (, (id 3) (id-Float 3)))
-        |] `hasType` Forall [] (tString +:* (tFloat +:* tFloat))
-
-      [q|(def id (λ x x))
-         (def id-Float (: id (-> Float Float)))
-         (, (id "blah") (, (id 3) (id-Float 3)))
-        |] `hasType` Forall [] (tString +:* (tFloat +:* tFloat))
-
+      Left err ->
+        it [qc|Parse error at L{lineNo}|] $
+          expectationFailure $ Text.unpack $ ppCompileError err
+      Right [] -> return ()
+      Right [STTree (STBare testFunc : args)] ->
+        it [qc|{testFunc} at L{lineNo}|] $ runHtsTest testFunc args
+      Right _ ->
+        it [qc|Malformed test at L{lineNo}|] $
+          expectationFailure "Malformed test"
 
   describe "Evaluation" $ do
     let returns :: String -> Val -> Expectation
@@ -487,10 +224,6 @@ main = hspec $ do
             (, (sum (Cons 3 Nil))
                (sum (Cons 3 (Cons 5 Nil)))))
         |] `returns` Tag "," [vFloat 0, Tag "," [vFloat 3, vFloat 8]]
-
-htsExample :: Int -> Text -> [SyntaxTree] -> Spec
-htsExample lineNo testFunc args =
-  it [qc|{testFunc} at L{lineNo}|] $ runHtsTest testFunc args
 
 runHtsTest :: Text -> [SyntaxTree] -> IO ()
 runHtsTest testFunc args = do
