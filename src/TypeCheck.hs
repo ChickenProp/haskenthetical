@@ -2,6 +2,12 @@ module TypeCheck
   ( runTypeCheck
   , typeCheckDefs
   , typeCheckMacs
+
+  -- Currently only exported for testing
+  , Constraint(..)
+  , Substitutable(..)
+  , generalize
+  , solver1
   ) where
 
 import Prelude.Extra
@@ -68,7 +74,7 @@ instance Substitutable (MType Tc) where
 instance Substitutable (PType Tc) where
   apply (Subst s) (Forall as t) =
     Forall as $ apply (Subst $ foldr Map.delete s as) t
-  ftv (Forall as t) = ftv t `Set.difference` Set.fromList as
+  ftv (Forall as t) = ftv t `Set.difference` as
 
 instance Substitutable a => Substitutable [a] where
   apply s as = fmap (apply s) as
@@ -105,10 +111,13 @@ runTypeCheck
   -> Typed (Expr Me)
   -> Either CompileError (PType Tc, Typed (Expr Tc))
 runTypeCheck env expr = do
+  when (not $ Set.null $ ftv $ ieVars env) $ do
+    Left $ CECompilerBug "Free type vars in environment"
+
   ((ty, expr'), _, constraints)
     <- runRWST (inferTypedExpr expr) env (InferState letters)
   subst <- solver1 constraints
-  return (generalize (ieVars env) $ apply subst ty, expr')
+  return (generalize Map.empty $ apply subst ty, expr')
  where
   letters :: [TVar Tc]
   letters =
@@ -166,7 +175,7 @@ genSym = do
 -- For each TVar listed in the Forall, we generate a fresh gensym and substitute
 -- it into the main type.
 instantiate :: PType Tc -> Infer (MType Tc)
-instantiate (Forall as t) = do
+instantiate (Forall (Set.toList -> as) t) = do
   as' <- mapM (const genSym) as
   let subst = Subst $ Map.fromList (zip as as')
   return $ apply subst t
@@ -177,7 +186,7 @@ instantiate (Forall as t) = do
 -- get placed into the Forall.
 generalize :: TypeEnv PType -> MType Tc -> PType Tc
 generalize env t = Forall as t
-  where as = Set.toList $ ftv t `Set.difference` ftv env
+  where as = ftv t `Set.difference` ftv env
 
 lookupVar :: Name -> Infer (MType Tc)
 lookupVar n = do

@@ -326,6 +326,8 @@ deriving instance Eq (TCon Ps)
 deriving instance Eq (TCon Tc)
 deriving instance Show (TCon Ps)
 deriving instance Show (TCon Tc)
+deriving instance Ord (TCon Ps)
+deriving instance Ord (TCon Tc)
 
 instance Gist (TCon p) where
   gist (TC _ n) = gist n
@@ -345,6 +347,8 @@ deriving instance Eq (MType Ps)
 deriving instance Eq (MType Tc)
 deriving instance Show (MType Ps)
 deriving instance Show (MType Tc)
+deriving instance Ord (MType Ps)
+deriving instance Ord (MType Tc)
 
 instance Gist (MType p) where
   gist = \case
@@ -396,7 +400,7 @@ instance BuiltinTypes Tc where
   tSyntaxTree = TCon (TC HType "SyntaxTree")
   tList t = TCon (TC (HType :*-> HType) "List") `TApp` t
 
-data PType (p :: Pass) = Forall [TVar p] (MType p)
+data PType (p :: Pass) = Forall (Set (TVar p)) (MType p)
 deriving instance Eq (PType Ps)
 deriving instance Eq (PType Tc)
 deriving instance Show (PType Ps)

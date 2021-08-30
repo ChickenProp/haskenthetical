@@ -13,8 +13,9 @@ module Env
 
 import Prelude.Extra
 
-import Data.List ((\\), union)
+import Data.List ((\\))
 import qualified Data.Map.Strict as Map
+import qualified Data.Set as Set
 import Data.Map.Strict ((!?))
 import qualified Data.TreeDiff as TD
 
@@ -64,7 +65,7 @@ ps2tc_PType env = \case
   Forall [] (a `TApp` b) -> do
     Forall vsl tl <- ps2tc_PType env $ Forall [] a
     Forall vsr tr <- ps2tc_PType env $ Forall [] b
-    return $ Forall (vsl `union` vsr) $ tl `TApp` tr
+    return $ Forall (vsl `Set.union` vsr) $ tl `TApp` tr
   Forall _ _ ->
     Left $ CECompilerBug
       "I don't know how to handle foralls in type annotations yet"
@@ -146,7 +147,7 @@ declareTypeConstructors (TypeDecl' { tdName, tdVars, tdConstructors }) env = do
   conType argNames = do
     types <- mapM (ps2tc_MType (feTypes env)) argNames
     let allVars = map (TV HType) tdVars
-        finalType = foldl' TApp newMType (TVar <$> allVars)
+        finalType = foldl' TApp newMType (Set.fromList $ TVar <$> allVars)
 
     -- Forbid constructors from using type variables not mentioned in
     -- `tdVars`. This would give us values with no attached types. E.g. after
@@ -157,7 +158,7 @@ declareTypeConstructors (TypeDecl' { tdName, tdVars, tdConstructors }) env = do
       [] -> return ()
       x:_ -> Left (CEUnknownType x) -- can only easily report one at a time
 
-    return $ Forall allVars $ foldr (+->) finalType types
+    return $ Forall (Set.fromList allVars) $ foldr (+->) finalType types
 
   conVal :: Name -> [MType Ps] -> Val
   conVal conName ts = go [] 0 (length ts)
@@ -187,7 +188,9 @@ declareTypeEliminator (TypeDecl' { tdName, tdVars, tdConstructors }) env = do
   allVars = TV HType <$> tdVars
 
   valType :: MType Tc
-  valType = foldl' TApp (TCon $ TC valKind tdName) (TVar <$> allVars)
+  valType = foldl' TApp
+                   (TCon $ TC valKind tdName)
+                   (Set.fromList $ TVar <$> allVars)
 
   conElimType :: [MType Ps] -> Either CompileError (MType Tc)
   conElimType typesPs = do
@@ -198,7 +201,7 @@ declareTypeEliminator (TypeDecl' { tdName, tdVars, tdConstructors }) env = do
   typeElimType = do
     mt <- foldr (+->) (valType +-> resultType)
             <$> mapM (conElimType . snd) tdConstructors
-    return $ Forall (resultTVar : allVars) mt
+    return $ Forall (Set.fromList $ resultTVar : allVars) mt
 
   typeElimName :: Name
   typeElimName = "elim-" <> tdName

@@ -32,7 +32,9 @@ default-extensions:
 - GeneralizedNewtypeDeriving
 - KindSignatures
 - LambdaCase
+- MultiWayIf
 - NamedFieldPuns
+- OverloadedLists
 - OverloadedStrings
 - QuasiQuotes
 - RecordWildCards

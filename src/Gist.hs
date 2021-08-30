@@ -5,6 +5,7 @@ module Gist
 
 import Prelude.Extra
 
+import qualified Data.Set as Set
 import qualified Data.Map.Strict as Map
 import Data.TreeDiff
 import Text.PrettyPrint (Doc)
@@ -28,3 +29,6 @@ instance Gist a => Gist [a] where
 
 instance (Gist k, Gist v) => Gist (Map k v) where
   gist m = App "Map" $ gist <$> Map.toList m
+
+instance Gist a => Gist (Set a) where
+  gist s = App "Set" $ gist <$> Set.toList s

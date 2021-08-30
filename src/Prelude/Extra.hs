@@ -16,6 +16,7 @@ import Data.List.NonEmpty as Export (NonEmpty(..))
 import Data.Generics.Product as Export (field, getField, setField)
 import Data.Map.Strict as Export (Map)
 import Data.Maybe as Export (catMaybes, mapMaybe)
+import Data.Set as Export (Set)
 import Data.Text as Export (Text)
 import Data.Void as Export (Void, absurd)
 import qualified Data.Text as Text
