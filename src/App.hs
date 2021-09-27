@@ -5,6 +5,8 @@ module App
   , SilentApp(..)
   , compileProgram
   , compileProgramFromTrees
+  , macroExpandTrees
+  , updateEnvFromStmts
   ) where
 
 import Prelude.Extra
@@ -88,6 +90,11 @@ compileProgramFromTrees
   => [SyntaxTree] -> m (Either CompileError (PType Tc, FullEnv, Expr Tc))
 compileProgramFromTrees trees = runExceptT $ do
   let topLevel = map treeToTopLevel trees
+      updateEnv env stmtTrees = do
+        expanded <- liftEither =<< lift (macroExpandTrees env stmtTrees)
+        newEnv <- liftEither $ updateEnvFromStmts env expanded
+        lift $ logStepGist CSEnvironment newEnv
+        return (expanded, newEnv)
       (declGroups, otherTopLevel) =
         partitionEithers $ flip map topLevel $ \case
           DeclarationsPs _ ts -> Left ts
@@ -95,32 +102,6 @@ compileProgramFromTrees trees = runExceptT $ do
           Declarations v _ -> absurd v
           TopLevelDecl v _ -> absurd v
           TopLevelExpr v _ -> absurd v
-      updateEnv env stmtTrees = do
-        stmts <- liftEither $ treesToStmts env stmtTrees
-        lift $ logStepGist CSExpr stmts
-
-        expanded <- liftEither $ traverse (macroExpandStmt env) stmts
-        lift $ logStepGist CSExpansion expanded
-
-        let catMaybes3 (a, b, c) = (catMaybes a, catMaybes b, catMaybes c)
-            (tyDecls, varDecls, macDecls) =
-              catMaybes3 $ unzip3 $ flip map expanded $ \case
-                TypeDecl d      -> (Just d, Nothing, Nothing)
-                Def n e         -> (Nothing, Just (n, e), Nothing)
-                DefMacro n e    -> (Nothing, Nothing, Just (n, e))
-                Expr _          -> (Nothing, Nothing, Nothing)
-                MacroStmt v _ _ -> absurd v
-
-        newEnv1 <- liftEither $ declareTypes tyDecls env
-
-        varDeclsTC <- liftEither $ typeCheckDefs (getInferEnv newEnv1) varDecls
-        newEnv2 <- liftEither $ declareVars varDeclsTC newEnv1
-
-        macDeclsTC <- liftEither $ typeCheckMacs (getInferEnv newEnv2) macDecls
-        newEnv <- liftEither $ declareMacs macDeclsTC newEnv2
-
-        lift $ logStepGist CSEnvironment newEnv
-        return (expanded, newEnv)
 
   newEnv1 <- foldM (\e ts -> snd <$> updateEnv e ts) defaultEnv declGroups
   (expanded, newEnv) <- updateEnv newEnv1 otherTopLevel
@@ -129,3 +110,36 @@ compileProgramFromTrees trees = runExceptT $ do
   (ty, tcExpr1) <- liftEither $ runTypeCheck (getInferEnv newEnv) expr1
   lift $ logStepGist CSType ty
   return (ty, newEnv, rmType tcExpr1)
+
+-- Each input tree corresponds to exactly one output Stmt, so we could run this
+-- in a traversal without the lists in the type signature. But if we want to log
+-- all the exprs at once, and all the expansions at once, that wouldn't work.
+-- (Unless we make the logging itself more complicated.)
+macroExpandTrees
+  :: AppMonad m => FullEnv -> [SyntaxTree] -> m (Either CompileError [Stmt Me])
+macroExpandTrees env trees = runExceptT $ do
+  stmts <- liftEither $ treesToStmts env trees
+  lift $ logStepGist CSExpr stmts
+
+  expanded <- liftEither $ traverse (macroExpandStmt env) stmts
+  lift $ logStepGist CSExpansion expanded
+  return expanded
+
+updateEnvFromStmts :: FullEnv -> [Stmt Me] -> Either CompileError FullEnv
+updateEnvFromStmts env stmts = do
+  let catMaybes3 (a, b, c) = (catMaybes a, catMaybes b, catMaybes c)
+      (tyDecls, varDecls, macDecls) =
+        catMaybes3 $ unzip3 $ flip map stmts $ \case
+          TypeDecl d      -> (Just d, Nothing, Nothing)
+          Def n e         -> (Nothing, Just (n, e), Nothing)
+          DefMacro n e    -> (Nothing, Nothing, Just (n, e))
+          Expr _          -> (Nothing, Nothing, Nothing)
+          MacroStmt v _ _ -> absurd v
+
+  newEnv1 <- declareTypes tyDecls env
+
+  varDeclsTC <- typeCheckDefs (getInferEnv newEnv1) varDecls
+  newEnv2 <- declareVars varDeclsTC newEnv1
+
+  macDeclsTC <- typeCheckMacs (getInferEnv newEnv2) macDecls
+  declareMacs macDeclsTC newEnv2

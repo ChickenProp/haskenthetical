@@ -742,3 +742,60 @@
   (, (sum Nil)
      (, (sum (Cons 3 Nil))
         (sum (Cons 3 (Cons 5 Nil))))))
+
+# # #
+# macroexpansion
+
+(expands-to (+ 1 (+ 2 (+ 3 (+ 4 5))))
+  ()
+  (» + 1 2 3 4 5))
+
+# # #
+# evaluating a macroexpansion
+
+(returns 15
+  (» + 1 2 3 4 5))
+
+# # #
+# declaring and expanding macros
+
+(expands-to (Cons 1 (Cons 2 (Cons 3 Nil)))
+  (((defmacro list
+      (letrec ((go (elim-List
+                     (STBare "Nil")
+                     (λ (hd tl)
+                        (STTree (» Cons (STBare "Cons") hd (go tl) Nil))))))
+        go))))
+  (list 1 2 3))
+
+# # #
+# declaring and evaluating macros
+
+(returns (Cons 1 (Cons 2 (Cons 3 Nil)))
+  (declarations
+    (defmacro list
+      (letrec ((go (elim-List
+                     (STBare "Nil")
+                     (λ (hd tl)
+                       (STTree (» Cons (STBare "Cons") hd (go tl) Nil))))))
+        go)))
+  (list 1 2 3))
+
+# # #
+# macro declarations can use types and values from the same block
+
+(returns 3
+  (declarations
+    (type ε ε)
+    (def (: three-f (-> ε Float)) (λ _ 3))
+    (defmacro three-m (λ _ (STFloat (three-f ε)))))
+  (three-m))
+
+# # #
+# values can't use macro declarations from the same block
+
+(compile-fails-with CEUnboundVar
+  (declarations
+    (defmacro three-m (λ _ (STFloat 3)))
+    (def three (three-m)))
+  three)

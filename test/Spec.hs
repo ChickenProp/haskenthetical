@@ -11,6 +11,7 @@ import Test.Hspec
 import Text.InterpolatedString.Perl6 (qc)
 
 import App
+import Defaults
 import Env
 import Eval
 import Parser
@@ -152,6 +153,7 @@ runHtsTest testFunc args = do
     , ("returns", testReturns)
     , ("compile-fails-with", testCompileFailsWith)
     , ("eval-fails-with", testEvalFailsWith)
+    , ("expands-to", testExpandsTo)
     , ("pending", testPending)
     ]
 
@@ -207,6 +209,36 @@ testEvalFailsWith (STString failure : testExprs) =
       Left err -> err `shouldBe` failure
       Right _ -> expectationFailure "Evaluation didn't fail"
 testEvalFailsWith _ = error "malformed eval-fails-with"
+
+testExpandsTo :: [SyntaxTree] -> IO ()
+testExpandsTo [expectedExpansion, STTree envDeclGroups, testExpr] = do
+  let envDeclGroups' = flip map envDeclGroups $ \case
+        STTree ts -> ts
+        _ -> error "Bad decl group"
+
+  let expansion :: Either CompileError [Stmt Me] = do
+        let updateEnv env trees = do
+              expanded <- runSilentApp $ macroExpandTrees env trees
+              newEnv <- updateEnvFromStmts env expanded
+              return newEnv
+        env <- foldM (\e ts -> updateEnv e ts) defaultEnv envDeclGroups'
+        runSilentApp $ macroExpandTrees env [testExpr]
+
+      -- We need to either convert the macroexpanded statements back to trees,
+      -- or macroexpand the trees with no macros in scope. Currently the second
+      -- is easier. Then, since there's no Eq instance for Stmt, we compare
+      -- their `show` outputs, which is pretty awful.
+      nullEnv = FullEnv Map.empty Map.empty
+      expectedExpansion' :: Stmt Me =
+        case runSilentApp $ macroExpandTrees nullEnv [expectedExpansion] of
+          Left _ -> error "Couldn't null-macroexpand expected"
+          Right [e] -> e
+          Right _ -> error "Too many results null-macroexpanding expected"
+  case expansion of
+    Left err -> error $ Text.unpack $ ppCompileError err
+    Right [e] -> show e `shouldBe` show expectedExpansion'
+    Right _ -> error "too many results"
+testExpandsTo _ = error "malformed expands-to"
 
 -- | Make sure pending tests actually do fail, so we don't forget to update them
 -- if we make them work.
