@@ -167,7 +167,7 @@ testHasType (expectedType : testExprs) = do
   let psExpectedType =
         either (error . Text.unpack) id $ parseMType expectedType
       tcExpectedType = either (error . Text.unpack . ppCompileError) id
-        $ me2tc_MType tyEnv (macroExpandMType psExpectedType)
+        $ me2tc_MType tyEnv (macroExpandSafe psExpectedType)
 
   when (ftv actualPType /= []) $
     expectationFailure "Result of type checking has free type variables"

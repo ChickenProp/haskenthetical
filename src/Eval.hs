@@ -1,10 +1,11 @@
+{-# LANGUAGE UndecidableInstances #-}
+
 module Eval
   ( call
   , eval1
   , getOnlyExpr
-  , macroExpandExpr
-  , macroExpandMType
-  , macroExpandStmt
+  , MacroExpand(..)
+  , MacroExpandSafe(..)
   , syntaxTreeToVal
   , valToSyntaxTrees
   ) where
@@ -18,91 +19,92 @@ import Env
 import Parser
 import Syntax
 
-macroExpandStmt :: FullEnv -> Stmt Ps -> Either CompileError (Stmt Me)
-macroExpandStmt env stmt = case stmt of
-  MacroStmt NoExt name trees -> do
-    case Map.lookup name (feVars env) of
-      Just (_, Macro func) -> do
-        treeVal <- first CEMiscError $ call func $ syntaxTreesToVal trees
-        tree <- first CEMiscError $ valToSyntaxTree treeVal
-        macroExpandStmt env =<< first CEMiscError (treeToStmt env tree)
-      Just _ -> Left $ CEMiscError "Attempting to macroexpand a non-macro"
-      Nothing ->
-        Left $ CEMiscError "Attempting to macroexpand a nonexistent var"
-  Expr te -> Expr <$> macroExpandTypedExpr env te
-  Def n te -> Def <$> macroExpandTypedName env n <*> macroExpandTypedExpr env te
-  DefMacro n te -> DefMacro n <$> macroExpandTypedExpr env te
-  TypeDecl td -> return $ TypeDecl $ macroExpandTypeDecl td
+class MacroExpand ps me | ps -> me, me -> ps where
+  macroExpand :: FullEnv -> ps -> Either CompileError me
+  default macroExpand
+    :: MacroExpandSafe ps me => FullEnv -> ps -> Either CompileError me
+  macroExpand _ = Right . macroExpandSafe
 
-macroExpandMType :: MType Ps -> MType Me
-macroExpandMType = \case
-  TVar (TV NoExt n) -> TVar (TV NoExt n)
-  TCon (TC NoExt n) -> TCon (TC NoExt n)
-  TApp v1 v2 -> TApp (macroExpandMType v1) (macroExpandMType v2)
+class MacroExpandSafe ps me | ps -> me, me -> ps where
+  macroExpandSafe :: ps -> me
 
-macroExpandPType :: FullEnv -> PType Ps -> Either CompileError (PType Me)
-macroExpandPType _env = \case
-  Forall vars ty -> return $ Forall (Set.map expVar vars) (macroExpandMType ty)
-  MacroPType _ _ _ -> Left $ CECompilerBug "Not yet implemented"
-  where expVar (TV NoExt n) = TV NoExt n
+instance MacroExpand (Stmt Ps) (Stmt Me) where
+  macroExpand env = \case
+    MacroStmt NoExt name trees -> do
+      case Map.lookup name (feVars env) of
+        Just (_, Macro func) -> do
+          treeVal <- first CEMiscError $ call func $ syntaxTreesToVal trees
+          tree <- first CEMiscError $ valToSyntaxTree treeVal
+          macroExpand env =<< first CEMiscError (treeToStmt env tree)
+        Just _ -> Left $ CEMiscError "Attempting to macroexpand a non-macro"
+        Nothing ->
+          Left $ CEMiscError "Attempting to macroexpand a nonexistent var"
+    Expr te -> Expr <$> macroExpand env te
+    Def n te ->
+      Def <$> macroExpand env n <*> macroExpand env te
+    DefMacro n te -> DefMacro n <$> macroExpand env te
+    TypeDecl td -> return $ TypeDecl $ macroExpandSafe td
 
-macroExpandTypedName
-  :: FullEnv -> Typed Ps Name -> Either CompileError (Typed Me Name)
-macroExpandTypedName env = \case
-  UnTyped n -> Right $ UnTyped n
-  Typed t n -> flip Typed n <$> macroExpandPType env t
+-- | Needs UndecidableInstances because GHC doesn't use the context to know that
+-- ps and me satisfy the fundeps.
+instance MacroExpand ps me => MacroExpand (Typed Ps ps) (Typed Me me) where
+  macroExpand env = \case
+    UnTyped x -> UnTyped <$> macroExpand env x
+    Typed t x -> Typed <$> macroExpand env t <*> macroExpand env x
 
-macroExpandTypedPattern
-  :: FullEnv
-  -> Typed Ps (Pattern Ps)
-  -> Either CompileError (Typed Me (Pattern Me))
-macroExpandTypedPattern env = \case
-  UnTyped p -> UnTyped <$> go p
-  Typed t p -> Typed <$> macroExpandPType env t <*> go p
- where
-  go = \case
-    PatConstr n pats -> PatConstr n <$> mapM (macroExpandTypedPattern env) pats
+instance MacroExpandSafe (MType Ps) (MType Me) where
+  macroExpandSafe = \case
+    TVar (TV NoExt n) -> TVar (TV NoExt n)
+    TCon (TC NoExt n) -> TCon (TC NoExt n)
+    TApp v1 v2 -> TApp (macroExpandSafe v1) (macroExpandSafe v2)
+
+instance MacroExpand (PType Ps) (PType Me) where
+  macroExpand _env = \case
+    Forall vars ty ->
+      return $ Forall (Set.map expVar vars) (macroExpandSafe ty)
+    MacroPType _ _ _ -> Left $ CECompilerBug "Not yet implemented"
+    where expVar (TV NoExt n) = TV NoExt n
+
+instance MacroExpandSafe Name Name where
+  macroExpandSafe = id
+instance MacroExpand Name Name
+
+instance MacroExpand (Pattern Ps) (Pattern Me) where
+  macroExpand env = \case
+    PatConstr n pats -> PatConstr n <$> mapM (macroExpand env) pats
     PatVal n -> return $ PatVal n
     PatLiteral l -> return $ PatLiteral l
 
-macroExpandTypedExpr
-  :: FullEnv -> Typed Ps (Expr Ps) -> Either CompileError (Typed Me (Expr Me))
-macroExpandTypedExpr env te =
-  let (t, e) = extractType te
-      t' = maybe (Right Nothing) (Just <$>) $ macroExpandPType env <$> t
-  in mkTyped <$> t' <*> macroExpandExpr env e
+instance MacroExpand (Expr Ps) (Expr Me) where
+  macroExpand env = \case
+    MacroExpr NoExt name trees -> do
+      case Map.lookup name (feVars env) of
+        Just (_, Macro func) -> do
+          treeVal <- first CEMiscError $ call func (syntaxTreesToVal trees)
+          tree <- first CEMiscError $ valToSyntaxTree treeVal
+          macroExpand env =<< first CEMiscError (treeToExpr env tree)
+        Just _ -> Left $ CEMiscError "Attempting to macroexpand a non-macro"
+        Nothing ->
+          Left $ CEMiscError "Attempting to macroexpand a nonexistent var"
 
-macroExpandExpr :: FullEnv -> Expr Ps -> Either CompileError (Expr Me)
-macroExpandExpr env expr = case expr of
-  MacroExpr NoExt name trees -> do
-    case Map.lookup name (feVars env) of
-      Just (_, Macro func) -> do
-        treeVal <- first CEMiscError $ call func (syntaxTreesToVal trees)
-        tree <- first CEMiscError $ valToSyntaxTree treeVal
-        macroExpandExpr env =<< first CEMiscError (treeToExpr env tree)
-      Just _ -> Left $ CEMiscError "Attempting to macroexpand a non-macro"
-      Nothing ->
-        Left $ CEMiscError "Attempting to macroexpand a nonexistent var"
+    Val       v  -> return $ Val v
+    Var       v  -> return $ Var v
+    Let    bs e  -> Let <$> meBindings bs <*> me e
+    LetRec bs e  -> LetRec <$> meBindings bs <*> me e
+    Lam    n  e  -> Lam <$> me n <*> me e
+    Call   e1 e2 -> Call <$> me e1 <*> me e2
+    IfMatch inE pat thenE elseE ->
+      IfMatch <$> me inE <*> me pat <*> me thenE <*> me elseE
+   where
+    me :: MacroExpand ps me => ps -> Either CompileError me
+    me = macroExpand env
+    meBindings = traverse $ \(n, e) -> (,) <$> me n <*> me e
 
-  Val v -> return $ Val v
-  Var v -> return $ Var v
-  Let bs e -> Let <$> meBindings bs <*> meTExpr e
-  LetRec bs e -> LetRec <$> meBindings bs <*> meTExpr e
-  Lam n e -> Lam <$> meTName n <*> meTExpr e
-  Call e1 e2 -> Call <$> meTExpr e1 <*> meTExpr e2
-  IfMatch inE pat thenE elseE ->
-    IfMatch <$> meTExpr inE <*> meTPat pat <*> meTExpr thenE <*> meTExpr elseE
- where
-  meTExpr = macroExpandTypedExpr env
-  meTName = macroExpandTypedName env
-  meTPat = macroExpandTypedPattern env
-  meBindings = traverse $ \(n, e) -> (,) <$> meTName n <*> meTExpr e
-
-macroExpandTypeDecl :: TypeDecl Ps -> TypeDecl Me
-macroExpandTypeDecl (TypeDecl' {..}) =
-  TypeDecl' {tdConstructors = newConstructors, ..}
-  where newConstructors = flip map tdConstructors $ \(name, types) ->
-          (name, macroExpandMType <$> types)
+instance MacroExpandSafe (TypeDecl Ps) (TypeDecl Me) where
+  macroExpandSafe (TypeDecl' {..}) =
+    TypeDecl' {tdConstructors = newConstructors, ..}
+    where newConstructors = flip map tdConstructors $ \(name, types) ->
+            (name, macroExpandSafe <$> types)
 
 syntaxTreeToVal :: SyntaxTree -> Val
 syntaxTreeToVal = \case

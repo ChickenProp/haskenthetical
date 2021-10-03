@@ -29,9 +29,11 @@ default-extensions:
 - DerivingStrategies
 - FlexibleContexts
 - FlexibleInstances
+- FunctionalDependencies
 - GeneralizedNewtypeDeriving
 - KindSignatures
 - LambdaCase
+- MultiParamTypeClasses
 - MultiWayIf
 - NamedFieldPuns
 - OverloadedLists

@@ -121,7 +121,7 @@ macroExpandTrees env trees = runExceptT $ do
   stmts <- liftEither $ treesToStmts env trees
   lift $ logStepGist CSExpr stmts
 
-  expanded <- liftEither $ traverse (macroExpandStmt env) stmts
+  expanded <- liftEither $ traverse (macroExpand env) stmts
   lift $ logStepGist CSExpansion expanded
   return expanded
 
