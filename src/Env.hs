@@ -7,8 +7,8 @@ module Env
   , declareVars
   , getInferEnv
   , getSymbols
-  , ps2tc_MType
-  , ps2tc_PType
+  , me2tc_MType
+  , me2tc_PType
   ) where
 
 import Prelude.Extra
@@ -48,14 +48,14 @@ insertUnique e k v orig = Map.alterF alter k orig
  where alter (Just _) = Left e
        alter Nothing = Right (Just v)
 
-ps2tc_MType :: TypeEnv MType -> MType Ps -> Either CompileError (MType Tc)
-ps2tc_MType env = \case
+me2tc_MType :: TypeEnv MType -> MType Me -> Either CompileError (MType Tc)
+me2tc_MType env = \case
   TCon (TC NoExt n) -> maybe (Left $ CEUnknownType n) return (env !? n)
   TVar (TV NoExt n) -> return $ TVar $ TV HType n
-  TApp a b -> TApp <$> ps2tc_MType env a <*> ps2tc_MType env b
+  TApp a b -> TApp <$> me2tc_MType env a <*> me2tc_MType env b
 
-ps2tc_PType :: TypeEnv PType -> PType Ps -> Either CompileError (PType Tc)
-ps2tc_PType env = \case
+me2tc_PType :: TypeEnv PType -> PType Me -> Either CompileError (PType Tc)
+me2tc_PType env = \case
   Forall [] (TCon (TC NoExt n)) -> do
    case env !? n of
      Nothing -> Left $ CEUnknownType n
@@ -63,15 +63,16 @@ ps2tc_PType env = \case
   Forall [] (TVar (TV NoExt n)) ->
     return $ Forall [TV HType n] (TVar $ TV HType n)
   Forall [] (a `TApp` b) -> do
-    Forall vsl tl <- ps2tc_PType env $ Forall [] a
-    Forall vsr tr <- ps2tc_PType env $ Forall [] b
+    Forall vsl tl <- me2tc_PType env $ Forall [] a
+    Forall vsr tr <- me2tc_PType env $ Forall [] b
     return $ Forall (vsl `Set.union` vsr) $ tl `TApp` tr
   Forall _ _ ->
     Left $ CECompilerBug
       "I don't know how to handle foralls in type annotations yet"
+  MacroPType v _ _ -> absurd v
 
 declareVars
-  :: [(Name, PType Tc, Typed (Expr Tc))]
+  :: [(Name, PType Tc, Typed Tc (Expr Tc))]
   -> FullEnv
   -> Either CompileError FullEnv
 declareVars [] env = return env
@@ -105,7 +106,7 @@ declareMacs macs env = foldM go env macs
                    (feVars env')
     return env' { feVars = newFeVars }
 
-declareTypes :: [TypeDecl] -> FullEnv -> Either CompileError FullEnv
+declareTypes :: [TypeDecl Me] -> FullEnv -> Either CompileError FullEnv
 declareTypes decls env = do
   -- We might have mutually recursive types, e.g.
   --
@@ -118,7 +119,7 @@ declareTypes decls env = do
   env3 <- foldM (flip declareTypeConstructors) env2 decls
   foldM (flip declareTypeEliminator) env3 decls
 
-declareType :: TypeDecl -> FullEnv -> Either CompileError FullEnv
+declareType :: TypeDecl Me -> FullEnv -> Either CompileError FullEnv
 declareType (TypeDecl' { tdName, tdVars }) env = do
   nt <- newTypes
   return env { feTypes = nt }
@@ -128,7 +129,7 @@ declareType (TypeDecl' { tdName, tdVars }) env = do
   newTypes = insertUnique (CEMultiDeclareType tdName)
                           tdName newMType (feTypes env)
 
-declareTypeConstructors :: TypeDecl -> FullEnv -> Either CompileError FullEnv
+declareTypeConstructors :: TypeDecl Me -> FullEnv -> Either CompileError FullEnv
 declareTypeConstructors (TypeDecl' { tdName, tdVars, tdConstructors }) env = do
   nv <- newVars
   return env { feVars = nv }
@@ -143,9 +144,9 @@ declareTypeConstructors (TypeDecl' { tdName, tdVars, tdConstructors }) env = do
     )
     (feVars env) tdConstructors
 
-  conType :: [MType Ps] -> Either CompileError (PType Tc)
+  conType :: [MType Me] -> Either CompileError (PType Tc)
   conType argNames = do
-    types <- mapM (ps2tc_MType (feTypes env)) argNames
+    types <- mapM (me2tc_MType (feTypes env)) argNames
     let allVars = map (TV HType) tdVars
         finalType = foldl' TApp newMType (Set.fromList $ TVar <$> allVars)
 
@@ -160,7 +161,7 @@ declareTypeConstructors (TypeDecl' { tdName, tdVars, tdConstructors }) env = do
 
     return $ Forall (Set.fromList allVars) $ foldr (+->) finalType types
 
-  conVal :: Name -> [MType Ps] -> Val
+  conVal :: Name -> [MType Me] -> Val
   conVal conName ts = go [] 0 (length ts)
    where
     go :: [Val] -> Int -> Int -> Val
@@ -172,7 +173,7 @@ declareTypeConstructors (TypeDecl' { tdName, tdVars, tdConstructors }) env = do
     mkName 0 = conName
     mkName n = conName <> "." <> Name (tshow n)
 
-declareTypeEliminator :: TypeDecl -> FullEnv -> Either CompileError FullEnv
+declareTypeEliminator :: TypeDecl Me -> FullEnv -> Either CompileError FullEnv
 declareTypeEliminator (TypeDecl' { tdName, tdVars, tdConstructors }) env = do
   teType <- typeElimType
   newVars <- insertUnique (CEMultiDeclareValue typeElimName)
@@ -192,9 +193,9 @@ declareTypeEliminator (TypeDecl' { tdName, tdVars, tdConstructors }) env = do
                    (TCon $ TC valKind tdName)
                    (Set.fromList $ TVar <$> allVars)
 
-  conElimType :: [MType Ps] -> Either CompileError (MType Tc)
+  conElimType :: [MType Me] -> Either CompileError (MType Tc)
   conElimType typesPs = do
-    typesTc <- mapM (ps2tc_MType $ feTypes env) typesPs
+    typesTc <- mapM (me2tc_MType $ feTypes env) typesPs
     return $ foldr (+->) resultType typesTc
 
   typeElimType :: Either CompileError (PType Tc)

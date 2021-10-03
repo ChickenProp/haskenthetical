@@ -74,7 +74,9 @@ instance Substitutable (MType Tc) where
 instance Substitutable (PType Tc) where
   apply (Subst s) (Forall as t) =
     Forall as $ apply (Subst $ foldr Map.delete s as) t
+  apply _ (MacroPType v _ _) = absurd v
   ftv (Forall as t) = ftv t `Set.difference` as
+  ftv (MacroPType v _ _) = absurd v
 
 instance Substitutable a => Substitutable [a] where
   apply s as = fmap (apply s) as
@@ -108,8 +110,8 @@ instance Substitutable v => Substitutable (Map k v) where
 
 runTypeCheck
   :: InferEnv
-  -> Typed (Expr Me)
-  -> Either CompileError (PType Tc, Typed (Expr Tc))
+  -> Typed Me (Expr Me)
+  -> Either CompileError (PType Tc, Typed Tc (Expr Tc))
 runTypeCheck env expr = do
   when (not $ Set.null $ ftv $ ieVars env) $ do
     Left $ CECompilerBug "Free type vars in environment"
@@ -125,8 +127,8 @@ runTypeCheck env expr = do
 
 typeCheckDefs
   :: InferEnv
-  -> [(Typed Name, Typed (Expr Me))]
-  -> Either CompileError [(Name, PType Tc, Typed (Expr Tc))]
+  -> [(Typed Me Name, Typed Me (Expr Me))]
+  -> Either CompileError [(Name, PType Tc, Typed Tc (Expr Tc))]
 typeCheckDefs env defs = do
   ((inferredTypes, inferredExprs), _, _)
     <- runRWST (inferRecBindings defs) env (InferState letters)
@@ -140,7 +142,7 @@ typeCheckDefs env defs = do
 
 typeCheckMacs
   :: InferEnv
-  -> [(Name, Typed (Expr Me))]
+  -> [(Name, Typed Me (Expr Me))]
   -> Either CompileError [(Name, Expr Tc)]
 typeCheckMacs env defs = do
   (inferredExprs, _, constraints) <- runRWST go env (InferState letters)
@@ -175,6 +177,7 @@ genSym = do
 -- For each TVar listed in the Forall, we generate a fresh gensym and substitute
 -- it into the main type.
 instantiate :: PType Tc -> Infer (MType Tc)
+instantiate (MacroPType v _ _) = absurd v
 instantiate (Forall (Set.toList -> as) t) = do
   as' <- mapM (const genSym) as
   let subst = Subst $ Map.fromList (zip as as')
@@ -198,23 +201,34 @@ lookupVar n = do
 unify :: MType Tc -> MType Tc -> Infer ()
 unify t1 t2 = tell [Unify t1 t2]
 
-ps2tc_Infer :: PType Ps -> Infer (PType Tc)
-ps2tc_Infer t = do
+me2tc_Infer :: PType Me -> Infer (PType Tc)
+me2tc_Infer t = do
   env <- asks ieTypes
-  lift $ ps2tc_PType (Forall [] <$> env) t
+  lift $ me2tc_PType (Forall [] <$> env) t
 
-inferTypedOn :: (b -> MType Tc) -> (a -> Infer b) -> Typed a -> Infer b
+me2tc_InferMay :: Maybe (PType Me) -> Infer (Maybe (PType Tc))
+me2tc_InferMay Nothing = pure Nothing
+me2tc_InferMay (Just t) = Just <$> me2tc_Infer t
+
+me2tc_InferTyped :: Typed Me a -> Infer (Typed Tc a)
+me2tc_InferTyped x = let (t, a) = extractType x
+                     in mkTyped <$> me2tc_InferMay t <*> pure a
+
+-- | Run inference on a typed value. `f` runs it on the value, and if there's a
+-- type, it's matched with the result of `getType` on the result of `f`.
+inferTypedOn :: (b -> MType Tc) -> (a -> Infer b) -> Typed Me a -> Infer b
 inferTypedOn _ f (UnTyped e) = f e
 inferTypedOn getType f (Typed t e) = do
-  t' <- instantiate =<< ps2tc_Infer t
+  t' <- instantiate =<< me2tc_Infer t
   e' <- f e
   tell [Match t' (getType e')]
   return e'
 
-inferTypedExpr :: Typed (Expr Me) -> Infer (MType Tc, Typed (Expr Tc))
-inferTypedExpr te =
+inferTypedExpr :: Typed Me (Expr Me) -> Infer (MType Tc, Typed Tc (Expr Tc))
+inferTypedExpr te = do
   let (t, _) = extractType te
-  in fmap (mkTyped t) <$> inferTypedOn fst inferExpr te
+  t' <- me2tc_InferMay t
+  fmap (mkTyped t') <$> inferTypedOn fst inferExpr te
 
 inferLiteral :: Literal -> Infer (MType Tc)
 inferLiteral = return . \case
@@ -235,9 +249,10 @@ inferExpr expr = case expr of
 
   Lam x e -> do
     let (declaredType, bindingName) = extractType x
-    argType <- maybe genSym (instantiate <=< ps2tc_Infer) declaredType
+    x' <- me2tc_InferTyped x
+    argType <- maybe genSym (instantiate <=< me2tc_Infer) declaredType
     (t, e') <- extending bindingName (Forall [] argType) (inferTypedExpr e)
-    return (argType +-> t, Lam x e')
+    return (argType +-> t, Lam x' e')
 
   Let bindings e -> go [] bindings
    where
@@ -245,13 +260,16 @@ inferExpr expr = case expr of
     go bindings' (b1:bs) = do
       env <- asks ieVars
 
-      let (extractType -> (declaredType, bindingName), boundExpr) = b1
+      let (tBindingName, boundExpr) = b1
+          (declaredType, bindingName) = extractType tBindingName
+      tBindingName' <- me2tc_InferTyped tBindingName
+
       ((inferredType, boundExpr'), constraints) <- listen $ do
         inferTypedOn fst inferTypedExpr (mkTyped declaredType boundExpr)
 
       subst <- liftEither $ solver1 constraints
       let gen = generalize env (apply subst inferredType)
-      extending bindingName gen $ go ((fst b1, boundExpr'):bindings') bs
+      extending bindingName gen $ go ((tBindingName', boundExpr'):bindings') bs
 
   LetRec bindings e -> do
     (gens, bindings') <- inferRecBindings bindings
@@ -268,7 +286,7 @@ inferExpr expr = case expr of
 
   IfMatch inE pat thenE elseE -> do
     (inT, inE') <- inferTypedExpr inE
-    (_, patBindings) <- inferTypedOn fst (inferPat inT) pat
+    (pat', patBindings) <- inferPat inT pat
 
     (thenT, thenE') <- local (field @"ieVars" %~ insertMany patBindings)
                    (inferTypedExpr thenE)
@@ -276,14 +294,14 @@ inferExpr expr = case expr of
 
     unify thenT elseT
 
-    return (thenT, IfMatch inE' pat thenE' elseE')
+    return (thenT, IfMatch inE' pat' thenE' elseE')
 
   MacroExpr v _ _ -> absurd v
 
 inferRecBindings
-  :: [(Typed Name, Typed (Expr Me))]
+  :: [(Typed Me Name, Typed Me (Expr Me))]
   -> Infer ( [(Name, PType Tc)]
-           , [(Typed Name, Typed (Expr Tc))]
+           , [(Typed Tc Name, Typed Tc (Expr Tc))]
            )
 inferRecBindings bindings = do
   env <- asks ieVars
@@ -298,11 +316,12 @@ inferRecBindings bindings = do
         (rmType n, Forall [] tv)
   (inferredTypesAndBindings, constraints) <-
     listen $ forM (zip genSyms bindings) $ \(tv, (n1, e1)) -> do
+      n1' <- me2tc_InferTyped n1
       (t1, e1') <- local (field @"ieVars" %~ insertMany tBindings) $ do
         let e1TypedTwice = mkTyped (fst $ extractType n1) e1
         inferTypedOn fst inferTypedExpr e1TypedTwice
       unify tv t1
-      return (t1, (n1, e1'))
+      return (t1, (n1', e1'))
   let (inferredTypes, bindings') = unzip inferredTypesAndBindings
 
   subst <- liftEither $ solver1 constraints
@@ -311,13 +330,17 @@ inferRecBindings bindings = do
 
   return (gens, bindings')
 
-inferPat :: MType Tc -> Pattern -> Infer (MType Tc, [(Name, PType Tc)])
-inferPat inT = \case
+inferPat
+  :: MType Tc
+  -> Typed Me (Pattern Me)
+  -> Infer (Typed Tc (Pattern Tc), [(Name, PType Tc)])
+inferPat inT inTPat = withT =<< case inPat of
   PatLiteral l -> do
     t <- inferLiteral l
     unify t inT
-    return (t, [])
-  PatVal n -> return (inT, [(n, Forall [] inT)])
+    return (t, PatLiteral l, [])
+  PatVal n -> do
+    return (inT, PatVal n, [(n, Forall [] inT)])
   PatConstr conName pats -> do
     pTypes <- traverse (\_ -> genSym) pats
 
@@ -344,13 +367,19 @@ inferPat inT = \case
     --
     -- Discussion: https://www.reddit.com/r/ProgrammingLanguages/comments/k7cj7e
 
-    bindings <-
-      map snd
-        <$> zipWithM (\pat pType -> inferTypedOn fst (inferPat pType) pat)
-                     pats
-                     pTypes
+    (pats', bindings) <-
+      unzip <$> zipWithM (\pat pType -> inferPat pType pat) pats pTypes
 
-    return (inT, concat bindings)
+    return (inT, PatConstr conName pats', concat bindings)
+  where
+    inPat = rmType inTPat
+    withT (outT, outPat, bindings) = case inTPat of
+      UnTyped _ -> pure $ (UnTyped outPat, bindings)
+      Typed t _ -> do
+        t' <- me2tc_Infer t
+        t'' <- instantiate t'
+        tell [Match t'' outT]
+        return (Typed t' outPat, bindings)
 
 ---
 
@@ -375,7 +404,7 @@ constrain twoWay = go
   go t1@(t11 `TApp` t12) t2@(t21 `TApp` t22)
     -- The root of a type application must be a fixed constructor, not a type
     -- variable. I'm not entirely sure why, and may just remove this restriction
-    -- in future. Would probably need `ps2tc_PType` and `ps2tc_MType` to be able
+    -- in future. Would probably need `me2tc_PType` and `me2tc_MType` to be able
     -- to construct a TVar with a kind other than HType.
     | isTVar t11 = Left $ CETVarAsRoot t1
     | isTVar t21 = Left $ CETVarAsRoot t2

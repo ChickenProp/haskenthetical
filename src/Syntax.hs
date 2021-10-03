@@ -173,14 +173,20 @@ mkBuiltinUnsafe = either (error "Bad DoBuiltin") id . mkBuiltin
 newtype Env = Env { unEnv :: Map Name Val }
   deriving (Show, Gist)
 
-data TypeDecl = TypeDecl'
+data TypeDecl (p :: Pass) = TypeDecl'
   { tdName :: Name
   , tdVars :: [Name]
-  , tdConstructors :: [(Name, [MType Ps])]
+  , tdConstructors :: [(Name, [MType p])]
   }
-  deriving (Eq, Show)
 
-instance Gist TypeDecl where
+deriving instance Eq (TypeDecl Ps)
+deriving instance Eq (TypeDecl Me)
+deriving instance Eq (TypeDecl Tc)
+deriving instance Show (TypeDecl Ps)
+deriving instance Show (TypeDecl Me)
+deriving instance Show (TypeDecl Tc)
+
+instance Gist (TypeDecl p) where
   gist (TypeDecl' {..}) =
     TD.App "TypeDecl" [gist tdName, gist tdVars, gist tdConstructors]
 
@@ -212,16 +218,22 @@ instance Gist Val where
     Tag (Name n) vals -> TD.App (Text.unpack n) (map gist vals)
     Macro _ -> gist ("Macro" :: Text)
 
-data Pattern
-  = PatConstr Name [Typed Pattern]
+data Pattern (p :: Pass)
+  = PatConstr Name [Typed p (Pattern p)]
   | PatVal Name
   | PatLiteral Literal
   -- PatVal and PatLit aren't Typed because the parser couldn't distinguish
   --     Typed t $ PatVal $ UnTyped n
   --     UnTyped $ PatVal $ Typed t n
-  deriving (Eq, Show)
 
-instance Gist Pattern where
+deriving instance Eq (Pattern Ps)
+deriving instance Eq (Pattern Me)
+deriving instance Eq (Pattern Tc)
+deriving instance Show (Pattern Ps)
+deriving instance Show (Pattern Me)
+deriving instance Show (Pattern Tc)
+
+instance Gist (Pattern p) where
   gist = \case
     PatConstr n ps -> TD.App "PatConstr" [gist n, gist ps]
     PatVal n -> TD.App "PatVal" [gist n]
@@ -230,12 +242,15 @@ instance Gist Pattern where
 data Expr (p :: Pass)
   = Val Val
   | Var Name
-  | Let [(Typed Name, Typed (Expr p))] (Typed (Expr p))
-  | LetRec [(Typed Name, Typed (Expr p))] (Typed (Expr p))
-  | Lam (Typed Name) (Typed (Expr p))
-  | Call (Typed (Expr p)) (Typed (Expr p))
-  | IfMatch (Typed (Expr p)) (Typed Pattern) (Typed (Expr p)) (Typed (Expr p))
-  | MacroExpr !(XMacroThing p) Name [SyntaxTree]
+  | Let [(Typed p Name, Typed p (Expr p))] (Typed p (Expr p))
+  | LetRec [(Typed p Name, Typed p (Expr p))] (Typed p (Expr p))
+  | Lam (Typed p Name) (Typed p (Expr p))
+  | Call (Typed p (Expr p)) (Typed p (Expr p))
+  | IfMatch (Typed p (Expr p))
+            (Typed p (Pattern p))
+            (Typed p (Expr p))
+            (Typed p (Expr p))
+  | MacroExpr !(XCanHaveMacro p) Name [SyntaxTree]
 
 deriving instance Show (Expr Ps)
 deriving instance Show (Expr Me)
@@ -253,20 +268,20 @@ instance Gist (Expr p) where
     MacroExpr _ n trees -> TD.App "MacroExpr" [gist n, gist trees]
 
 data Stmt (p :: Pass)
-  = Expr (Typed (Expr p))
-  | Def (Typed Name) (Typed (Expr p))
-  | DefMacro Name (Typed (Expr p))
-  | TypeDecl TypeDecl
-  | MacroStmt !(XMacroThing p) Name [SyntaxTree]
+  = Expr (Typed p (Expr p))
+  | Def (Typed p Name) (Typed p (Expr p))
+  | DefMacro Name (Typed p (Expr p))
+  | TypeDecl (TypeDecl p)
+  | MacroStmt !(XCanHaveMacro p) Name [SyntaxTree]
 
 deriving instance Show (Stmt Ps)
 deriving instance Show (Stmt Me)
 deriving instance Show (Stmt Tc)
 
-type family XMacroThing (p :: Pass)
-type instance XMacroThing Ps = NoExt
-type instance XMacroThing Me = Void
-type instance XMacroThing Tc = Void
+type family XCanHaveMacro (p :: Pass)
+type instance XCanHaveMacro Ps = NoExt
+type instance XCanHaveMacro Me = Void
+type instance XCanHaveMacro Tc = Void
 
 instance Gist (Stmt p) where
   gist = \case
@@ -281,7 +296,7 @@ data TopLevel (p :: Pass)
   | OtherTopLevelPs !(IfPassLE p Ps) SyntaxTree
   | Declarations !(IfPassGT p Ps) [Stmt p]
   | TopLevelDecl !(IfPassGT p Ps) (Stmt p)
-  | TopLevelExpr !(IfPassGT p Ps) (Typed (Expr p))
+  | TopLevelExpr !(IfPassGT p Ps) (Typed p (Expr p))
 
 deriving instance Show (TopLevel Ps)
 deriving instance Show (TopLevel Me)
@@ -305,10 +320,13 @@ class HasKind t where
 
 data TVar (p :: Pass) = TV !(XTV p) Name
 deriving instance Eq (TVar Ps)
+deriving instance Eq (TVar Me)
 deriving instance Eq (TVar Tc)
 deriving instance Show (TVar Ps)
+deriving instance Show (TVar Me)
 deriving instance Show (TVar Tc)
 deriving instance Ord (TVar Ps)
+deriving instance Ord (TVar Me)
 deriving instance Ord (TVar Tc)
 
 instance Gist (TVar p) where
@@ -316,6 +334,7 @@ instance Gist (TVar p) where
 
 type family XTV (p :: Pass)
 type instance XTV Ps = NoExt
+type instance XTV Me = NoExt
 type instance XTV Tc = Kind
 
 instance HasName (TVar p) where getName (TV _ n) = n
@@ -323,10 +342,13 @@ instance HasKind (TVar Tc) where getKind (TV k _) = k
 
 data TCon (p :: Pass) = TC !(XTC p) Name
 deriving instance Eq (TCon Ps)
+deriving instance Eq (TCon Me)
 deriving instance Eq (TCon Tc)
 deriving instance Show (TCon Ps)
+deriving instance Show (TCon Me)
 deriving instance Show (TCon Tc)
 deriving instance Ord (TCon Ps)
+deriving instance Ord (TCon Me)
 deriving instance Ord (TCon Tc)
 
 instance Gist (TCon p) where
@@ -334,6 +356,7 @@ instance Gist (TCon p) where
 
 type family XTC (p :: Pass)
 type instance XTC Ps = NoExt
+type instance XTC Me = NoExt
 type instance XTC Tc = Kind
 
 instance HasName (TCon p) where getName (TC _ n) = n
@@ -344,10 +367,13 @@ data MType (p :: Pass)
   | TCon (TCon p)
   | TApp (MType p) (MType p)
 deriving instance Eq (MType Ps)
+deriving instance Eq (MType Me)
 deriving instance Eq (MType Tc)
 deriving instance Show (MType Ps)
+deriving instance Show (MType Me)
 deriving instance Show (MType Tc)
 deriving instance Ord (MType Ps)
+deriving instance Ord (MType Me)
 deriving instance Ord (MType Tc)
 
 instance Gist (MType p) where
@@ -393,6 +419,13 @@ instance BuiltinTypes Ps where
   tSyntaxTree = TCon (TC NoExt "SyntaxTree")
   tList t = TCon (TC NoExt "List") `TApp` t
 
+instance BuiltinTypes Me where
+  tFloat = TCon (TC NoExt "Float")
+  tString = TCon (TC NoExt "String")
+  tMacro = TCon (TC NoExt "Macro")
+  tSyntaxTree = TCon (TC NoExt "SyntaxTree")
+  tList t = TCon (TC NoExt "List") `TApp` t
+
 instance BuiltinTypes Tc where
   tFloat = TCon (TC HType "Float")
   tString = TCon (TC HType "String")
@@ -400,28 +433,41 @@ instance BuiltinTypes Tc where
   tSyntaxTree = TCon (TC HType "SyntaxTree")
   tList t = TCon (TC (HType :*-> HType) "List") `TApp` t
 
-data PType (p :: Pass) = Forall (Set (TVar p)) (MType p)
+data PType (p :: Pass)
+  = Forall (Set (TVar p)) (MType p)
+  | MacroPType !(XCanHaveMacro p) Name [SyntaxTree]
+
 deriving instance Eq (PType Ps)
+deriving instance Eq (PType Me)
 deriving instance Eq (PType Tc)
 deriving instance Show (PType Ps)
+deriving instance Show (PType Me)
 deriving instance Show (PType Tc)
 
 instance Gist (PType p) where
   gist (Forall vs mt) = TD.App "Forall" [gist vs, gist mt]
+  gist (MacroPType _ n trees) = TD.App "MacroPType" [gist n, gist trees]
 
-data Typed e = Typed (PType Ps) e | UnTyped e deriving (Eq, Show)
+data Typed (p :: Pass) e = Typed (PType p) e | UnTyped e
 
-instance Gist e => Gist (Typed e) where
+deriving instance Eq e => Eq (Typed Ps e)
+deriving instance Eq e => Eq (Typed Me e)
+deriving instance Eq e => Eq (Typed Tc e)
+deriving instance Show e => Show (Typed Ps e)
+deriving instance Show e => Show (Typed Me e)
+deriving instance Show e => Show (Typed Tc e)
+
+instance Gist e => Gist (Typed p e) where
   gist (UnTyped e) = gist e
   gist (Typed t e) = TD.App ":" [gist t, gist e]
 
-extractType :: Typed a -> (Maybe (PType Ps), a)
+extractType :: Typed p a -> (Maybe (PType p), a)
 extractType = \case
   Typed t a -> (Just t, a)
   UnTyped a -> (Nothing, a)
 
-mkTyped :: Maybe (PType Ps) -> a -> Typed a
+mkTyped :: Maybe (PType p) -> a -> Typed p a
 mkTyped = maybe UnTyped Typed
 
-rmType :: Typed a -> a
+rmType :: Typed p a -> a
 rmType = snd . extractType

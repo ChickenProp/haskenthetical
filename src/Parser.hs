@@ -147,7 +147,7 @@ treeToStmt env = \case
     Just (t, _) -> t == Forall [] tMacro
 
 parseTyped
-  :: (SyntaxTree -> Either Text a) -> SyntaxTree -> Either Text (Typed a)
+  :: (SyntaxTree -> Either Text a) -> SyntaxTree -> Either Text (Typed Ps a)
 parseTyped parseUntyped = \case
   STTree [STBare ":", x, typ] -> do
     parsed <- parseTyped parseUntyped x
@@ -232,7 +232,7 @@ treeToExpr env = \case
 treesToStmts :: FullEnv -> [SyntaxTree] -> Either CompileError [Stmt Ps]
 treesToStmts env = mapM (first CEMalformedExpr . treeToStmt env)
 
-parsePattern :: SyntaxTree -> Either Text Pattern
+parsePattern :: SyntaxTree -> Either Text (Pattern Ps)
 parsePattern = \case
   STBare n -> return $ case Text.stripPrefix "$" n of
     Just n' -> PatVal $ Name n'

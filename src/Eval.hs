@@ -3,6 +3,7 @@ module Eval
   , eval1
   , getOnlyExpr
   , macroExpandExpr
+  , macroExpandMType
   , macroExpandStmt
   , syntaxTreeToVal
   , valToSyntaxTrees
@@ -11,12 +12,13 @@ module Eval
 import Prelude.Extra
 
 import qualified Data.Map.Strict as Map
+import qualified Data.Set as Set
 
 import Env
 import Parser
 import Syntax
 
-macroExpandStmt :: FullEnv -> (Stmt Ps) -> Either CompileError (Stmt Me)
+macroExpandStmt :: FullEnv -> Stmt Ps -> Either CompileError (Stmt Me)
 macroExpandStmt env stmt = case stmt of
   MacroStmt NoExt name trees -> do
     case Map.lookup name (feVars env) of
@@ -25,16 +27,50 @@ macroExpandStmt env stmt = case stmt of
         tree <- first CEMiscError $ valToSyntaxTree treeVal
         macroExpandStmt env =<< first CEMiscError (treeToStmt env tree)
       Just _ -> Left $ CEMiscError "Attempting to macroexpand a non-macro"
-      Nothing -> Left $ CEMiscError "Attempting to macroexpand a nonexistent var"
+      Nothing ->
+        Left $ CEMiscError "Attempting to macroexpand a nonexistent var"
   Expr te -> Expr <$> macroExpandTypedExpr env te
-  Def n te -> Def n <$> macroExpandTypedExpr env te
+  Def n te -> Def <$> macroExpandTypedName env n <*> macroExpandTypedExpr env te
   DefMacro n te -> DefMacro n <$> macroExpandTypedExpr env te
-  TypeDecl td -> return $ TypeDecl td
+  TypeDecl td -> return $ TypeDecl $ macroExpandTypeDecl td
+
+macroExpandMType :: MType Ps -> MType Me
+macroExpandMType = \case
+  TVar (TV NoExt n) -> TVar (TV NoExt n)
+  TCon (TC NoExt n) -> TCon (TC NoExt n)
+  TApp v1 v2 -> TApp (macroExpandMType v1) (macroExpandMType v2)
+
+macroExpandPType :: FullEnv -> PType Ps -> Either CompileError (PType Me)
+macroExpandPType _env = \case
+  Forall vars ty -> return $ Forall (Set.map expVar vars) (macroExpandMType ty)
+  MacroPType _ _ _ -> Left $ CECompilerBug "Not yet implemented"
+  where expVar (TV NoExt n) = TV NoExt n
+
+macroExpandTypedName
+  :: FullEnv -> Typed Ps Name -> Either CompileError (Typed Me Name)
+macroExpandTypedName env = \case
+  UnTyped n -> Right $ UnTyped n
+  Typed t n -> flip Typed n <$> macroExpandPType env t
+
+macroExpandTypedPattern
+  :: FullEnv
+  -> Typed Ps (Pattern Ps)
+  -> Either CompileError (Typed Me (Pattern Me))
+macroExpandTypedPattern env = \case
+  UnTyped p -> UnTyped <$> go p
+  Typed t p -> Typed <$> macroExpandPType env t <*> go p
+ where
+  go = \case
+    PatConstr n pats -> PatConstr n <$> mapM (macroExpandTypedPattern env) pats
+    PatVal n -> return $ PatVal n
+    PatLiteral l -> return $ PatLiteral l
 
 macroExpandTypedExpr
-  :: FullEnv -> Typed (Expr Ps) -> Either CompileError (Typed (Expr Me))
-macroExpandTypedExpr env te = let (t, e) = extractType te
-                              in mkTyped t <$> macroExpandExpr env e
+  :: FullEnv -> Typed Ps (Expr Ps) -> Either CompileError (Typed Me (Expr Me))
+macroExpandTypedExpr env te =
+  let (t, e) = extractType te
+      t' = maybe (Right Nothing) (Just <$>) $ macroExpandPType env <$> t
+  in mkTyped <$> t' <*> macroExpandExpr env e
 
 macroExpandExpr :: FullEnv -> Expr Ps -> Either CompileError (Expr Me)
 macroExpandExpr env expr = case expr of
@@ -45,19 +81,28 @@ macroExpandExpr env expr = case expr of
         tree <- first CEMiscError $ valToSyntaxTree treeVal
         macroExpandExpr env =<< first CEMiscError (treeToExpr env tree)
       Just _ -> Left $ CEMiscError "Attempting to macroexpand a non-macro"
-      Nothing -> Left $ CEMiscError "Attempting to macroexpand a nonexistent var"
+      Nothing ->
+        Left $ CEMiscError "Attempting to macroexpand a nonexistent var"
 
   Val v -> return $ Val v
   Var v -> return $ Var v
-  Let bs e -> Let <$> meBindings bs <*> meTyped e
-  LetRec bs e -> LetRec <$> meBindings bs <*> meTyped e
-  Lam n e -> Lam n <$> meTyped e
-  Call e1 e2 -> Call <$> meTyped e1 <*> meTyped e2
+  Let bs e -> Let <$> meBindings bs <*> meTExpr e
+  LetRec bs e -> LetRec <$> meBindings bs <*> meTExpr e
+  Lam n e -> Lam <$> meTName n <*> meTExpr e
+  Call e1 e2 -> Call <$> meTExpr e1 <*> meTExpr e2
   IfMatch inE pat thenE elseE ->
-    IfMatch <$> meTyped inE <*> pure pat <*> meTyped thenE <*> meTyped elseE
+    IfMatch <$> meTExpr inE <*> meTPat pat <*> meTExpr thenE <*> meTExpr elseE
  where
-  meTyped = macroExpandTypedExpr env
-  meBindings = traverse (\(n, e) -> (n,) <$> meTyped e)
+  meTExpr = macroExpandTypedExpr env
+  meTName = macroExpandTypedName env
+  meTPat = macroExpandTypedPattern env
+  meBindings = traverse $ \(n, e) -> (,) <$> meTName n <*> meTExpr e
+
+macroExpandTypeDecl :: TypeDecl Ps -> TypeDecl Me
+macroExpandTypeDecl (TypeDecl' {..}) =
+  TypeDecl' {tdConstructors = newConstructors, ..}
+  where newConstructors = flip map tdConstructors $ \(name, types) ->
+          (name, macroExpandMType <$> types)
 
 syntaxTreeToVal :: SyntaxTree -> Val
 syntaxTreeToVal = \case
@@ -85,7 +130,7 @@ valToSyntaxTrees = \case
   Tag "Cons" [hd, tl] -> (:) <$> valToSyntaxTree hd <*> valToSyntaxTrees tl
   _ -> Left "Lifting an incorrect type: List SyntaxTree"
 
-getOnlyExpr :: [Stmt Me] -> Either CompileError (Typed (Expr Me))
+getOnlyExpr :: [Stmt Me] -> Either CompileError (Typed Me (Expr Me))
 getOnlyExpr stmts = case getExprs stmts of
   [] -> Left $ CEMiscError "Need an expr"
   [e] -> Right e
@@ -137,7 +182,7 @@ elimThunk (Thunk newenv e) = elimThunk =<< eval1 newenv e
 elimThunk x = Right x
 
 -- | If `val` matches `pat`, return Just a list of bound variables.
-patternMatch :: Pattern -> Val -> Maybe [(Name, Val)]
+patternMatch :: Pattern Tc -> Val -> Maybe [(Name, Val)]
 patternMatch pat val = case pat of
   PatLiteral l -> case val of
     Literal l' | l == l' -> Just []
