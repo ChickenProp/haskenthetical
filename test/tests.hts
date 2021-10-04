@@ -799,3 +799,9 @@
     (defmacro three-m (λ _ (STFloat 3)))
     (def three (three-m)))
   three)
+
+# # #
+# can use macros in types
+
+(has-type (-> Float (-> Float Float))
+  (: + (» -> Float Float Float)))

@@ -30,15 +30,7 @@ class MacroExpandSafe ps me | ps -> me, me -> ps where
 
 instance MacroExpand (Stmt Ps) (Stmt Me) where
   macroExpand env = \case
-    MacroStmt NoExt name trees -> do
-      case Map.lookup name (feVars env) of
-        Just (_, Macro func) -> do
-          treeVal <- first CEMiscError $ call func $ syntaxTreesToVal trees
-          tree <- first CEMiscError $ valToSyntaxTree treeVal
-          macroExpand env =<< first CEMiscError (treeToStmt env tree)
-        Just _ -> Left $ CEMiscError "Attempting to macroexpand a non-macro"
-        Nothing ->
-          Left $ CEMiscError "Attempting to macroexpand a nonexistent var"
+    MacroStmt NoExt name trees -> doExpandMacro treeToStmt env name trees
     Expr te -> Expr <$> macroExpand env te
     Def n te ->
       Def <$> macroExpand env n <*> macroExpand env te
@@ -59,10 +51,10 @@ instance MacroExpandSafe (MType Ps) (MType Me) where
     TApp v1 v2 -> TApp (macroExpandSafe v1) (macroExpandSafe v2)
 
 instance MacroExpand (PType Ps) (PType Me) where
-  macroExpand _env = \case
+  macroExpand env = \case
     Forall vars ty ->
       return $ Forall (Set.map expVar vars) (macroExpandSafe ty)
-    MacroPType _ _ _ -> Left $ CECompilerBug "Not yet implemented"
+    MacroPType NoExt name args -> doExpandMacro parsePType env name args
     where expVar (TV NoExt n) = TV NoExt n
 
 instance MacroExpandSafe Name Name where
@@ -77,16 +69,7 @@ instance MacroExpand (Pattern Ps) (Pattern Me) where
 
 instance MacroExpand (Expr Ps) (Expr Me) where
   macroExpand env = \case
-    MacroExpr NoExt name trees -> do
-      case Map.lookup name (feVars env) of
-        Just (_, Macro func) -> do
-          treeVal <- first CEMiscError $ call func (syntaxTreesToVal trees)
-          tree <- first CEMiscError $ valToSyntaxTree treeVal
-          macroExpand env =<< first CEMiscError (treeToExpr env tree)
-        Just _ -> Left $ CEMiscError "Attempting to macroexpand a non-macro"
-        Nothing ->
-          Left $ CEMiscError "Attempting to macroexpand a nonexistent var"
-
+    MacroExpr NoExt name trees -> doExpandMacro treeToExpr env name trees
     Val       v  -> return $ Val v
     Var       v  -> return $ Var v
     Let    bs e  -> Let <$> meBindings bs <*> me e
@@ -131,6 +114,23 @@ valToSyntaxTrees = \case
   Tag "Nil" [] -> Right []
   Tag "Cons" [hd, tl] -> (:) <$> valToSyntaxTree hd <*> valToSyntaxTrees tl
   _ -> Left "Lifting an incorrect type: List SyntaxTree"
+
+doExpandMacro
+  :: MacroExpand (a Ps) (a Me)
+  => (FullEnv -> SyntaxTree -> Either Text (a Ps))
+  -> FullEnv
+  -> Name
+  -> [SyntaxTree]
+  -> Either CompileError (a Me)
+doExpandMacro parseTree env macName args = do
+  case Map.lookup macName (feVars env) of
+    Just (_, Macro func) -> do
+      treeVal <- first CEMiscError $ call func $ syntaxTreesToVal args
+      tree <- first CEMiscError $ valToSyntaxTree treeVal
+      macroExpand env =<< first CEMiscError (parseTree env tree)
+    Just _ -> Left $ CECompilerBug "Attempting to macroexpand a non-macro"
+    Nothing ->
+      Left $ CECompilerBug "Attempting to macroexpand a nonexistent var"
 
 getOnlyExpr :: [Stmt Me] -> Either CompileError (Typed Me (Expr Me))
 getOnlyExpr stmts = case getExprs stmts of
