@@ -142,6 +142,9 @@ mtypesEquiv m1 m2 =
       Just v2' -> if v2 == v2' then Right acc else Left ()
   go _ _ _ = Left ()
 
+nullEnv :: FullEnv
+nullEnv = FullEnv Map.empty Map.empty
+
 runHtsTest :: Text -> [SyntaxTree] -> IO ()
 runHtsTest testFunc args = do
   case Map.lookup testFunc testFuncs of
@@ -164,10 +167,11 @@ testHasType (expectedType : testExprs) = do
     case runSilentApp $ compileProgramFromTrees testExprs of
       Left err -> error $ Text.unpack $ ppCompileError err
       Right (ty, env, _) -> return (ty, feTypes env)
-  let psExpectedType =
-        either (error . Text.unpack) id $ parseMType expectedType
-      tcExpectedType = either (error . Text.unpack . ppCompileError) id
-        $ me2tc_MType tyEnv (macroExpandSafe psExpectedType)
+  let tcExpectedType = either (error . Text.unpack) id $ do
+        psExpectedType <- parseMType nullEnv expectedType
+        meExpectedType <-
+          mapLeft ppCompileError $ macroExpand nullEnv psExpectedType
+        mapLeft ppCompileError $ me2tc_MType tyEnv meExpectedType
 
   when (ftv actualPType /= []) $
     expectationFailure "Result of type checking has free type variables"
@@ -228,7 +232,6 @@ testExpandsTo [expectedExpansion, STTree envDeclGroups, testExpr] = do
       -- or macroexpand the trees with no macros in scope. Currently the second
       -- is easier. Then, since there's no Eq instance for Stmt, we compare
       -- their `show` outputs, which is pretty awful.
-      nullEnv = FullEnv Map.empty Map.empty
       expectedExpansion' :: Stmt Me =
         case runSilentApp $ macroExpandTrees nullEnv [expectedExpansion] of
           Left _ -> error "Couldn't null-macroexpand expected"

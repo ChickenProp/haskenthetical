@@ -35,7 +35,7 @@ instance MacroExpand (Stmt Ps) (Stmt Me) where
     Def n te ->
       Def <$> macroExpand env n <*> macroExpand env te
     DefMacro n te -> DefMacro n <$> macroExpand env te
-    TypeDecl td -> return $ TypeDecl $ macroExpandSafe td
+    TypeDecl td -> TypeDecl <$> macroExpand env td
 
 -- | Needs UndecidableInstances because GHC doesn't use the context to know that
 -- ps and me satisfy the fundeps.
@@ -44,16 +44,16 @@ instance MacroExpand ps me => MacroExpand (Typed Ps ps) (Typed Me me) where
     UnTyped x -> UnTyped <$> macroExpand env x
     Typed t x -> Typed <$> macroExpand env t <*> macroExpand env x
 
-instance MacroExpandSafe (MType Ps) (MType Me) where
-  macroExpandSafe = \case
-    TVar (TV NoExt n) -> TVar (TV NoExt n)
-    TCon (TC NoExt n) -> TCon (TC NoExt n)
-    TApp v1 v2 -> TApp (macroExpandSafe v1) (macroExpandSafe v2)
+instance MacroExpand (MType Ps) (MType Me) where
+  macroExpand env = \case
+    TVar (TV NoExt n) -> return $ TVar (TV NoExt n)
+    TCon (TC NoExt n) -> return $ TCon (TC NoExt n)
+    TApp v1 v2 -> TApp <$> macroExpand env v1 <*> macroExpand env v2
+    MacroMType NoExt name args -> doExpandMacro parseMType env name args
 
 instance MacroExpand (PType Ps) (PType Me) where
   macroExpand env = \case
-    Forall vars ty ->
-      return $ Forall (Set.map expVar vars) (macroExpandSafe ty)
+    Forall vars ty -> Forall (Set.map expVar vars) <$> macroExpand env ty
     MacroPType NoExt name args -> doExpandMacro parsePType env name args
     where expVar (TV NoExt n) = TV NoExt n
 
@@ -83,11 +83,11 @@ instance MacroExpand (Expr Ps) (Expr Me) where
     me = macroExpand env
     meBindings = traverse $ \(n, e) -> (,) <$> me n <*> me e
 
-instance MacroExpandSafe (TypeDecl Ps) (TypeDecl Me) where
-  macroExpandSafe (TypeDecl' {..}) =
-    TypeDecl' {tdConstructors = newConstructors, ..}
-    where newConstructors = flip map tdConstructors $ \(name, types) ->
-            (name, macroExpandSafe <$> types)
+instance MacroExpand (TypeDecl Ps) (TypeDecl Me) where
+  macroExpand env (TypeDecl' {..}) = do
+    newConstructors <- forM tdConstructors $ \(name, types) ->
+      (name, ) <$> mapM (macroExpand env) types
+    return $ TypeDecl' {tdConstructors = newConstructors, ..}
 
 syntaxTreeToVal :: SyntaxTree -> Val
 syntaxTreeToVal = \case

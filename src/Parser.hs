@@ -129,11 +129,14 @@ treeToStmt env = \case
           _ `TApp` (TCon _) -> Left "type constructor where I expected a var"
           _ `TApp` (TApp _ _) -> Left "type application where I expected a var"
           a `TApp` (TVar (TV NoExt v)) -> fmap (++ [v]) <$> parseTCon a
-    (typeName, typeVars) <- parseTCon =<< parseMType typeCon
+          _ `TApp` (MacroMType NoExt _ _) -> Left "macro where I expected a var"
+          MacroMType NoExt _ _ -> Left "can't use macros in type declarations"
+    (typeName, typeVars) <- parseTCon =<< parseMType env typeCon
 
     constrs <- forM dataCons $ \case
       STBare cname -> return (Name cname, [])
-      STTree (STBare cname : args) -> fmap (Name cname,) $ mapM parseMType args
+      STTree (STBare cname : args) ->
+        fmap (Name cname,) $ mapM (parseMType env) args
       _ -> Left "Bad constructor"
     return $ TypeDecl $ TypeDecl' typeName typeVars constrs
   STTree (STBare "type" : _) ->
@@ -246,20 +249,25 @@ parsePattern env = \case
 
 parsePType :: FullEnv -> SyntaxTree -> Either Text (PType Ps)
 parsePType env = \case
+  -- There's no way to parse a `Forall [] (MacroMType ...)`. But if the macro
+  -- expands into an MType, then as a PType it'll expand into a `Forall [] ...`,
+  -- so we don't lose expressivity.
   STTree (STBare n : rest) | isMacro env n ->
     return $ MacroPType NoExt (Name n) rest
-  tree -> Forall [] <$> parseMType tree
+  tree -> Forall [] <$> parseMType env tree
 
-parseMType :: SyntaxTree -> Either Text (MType Ps)
-parseMType = \case
+parseMType :: FullEnv -> SyntaxTree -> Either Text (MType Ps)
+parseMType env = \case
   STBare n -> return $ case Text.take 1 n of
     "$" -> TVar $ TV NoExt $ Name n
     _ -> TCon $ TC NoExt $ Name n
   STFloat _ -> Left "Cannot put a Float in a type"
   STString _ -> Left "Cannot put a String in a type"
   STTree [] -> Left "Empty type"
+  STTree (STBare n : rest) | isMacro env n ->
+    return $ MacroMType NoExt (Name n) rest
   STTree xs -> do
-    ts <- mapM parseMType xs
+    ts <- mapM (parseMType env) xs
     return $ foldl1' TApp ts
 
 isMacro :: FullEnv -> Text -> Bool

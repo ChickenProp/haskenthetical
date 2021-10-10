@@ -751,10 +751,17 @@
   (» + 1 2 3 4 5))
 
 # # #
+# macroexpansion
+
+(expands-to (+ 1 (+ 2 (+ 3 (+ 4 5))))
+  ()
+  (» + 1 2 (» + 3 4 5)))
+
+# # #
 # evaluating a macroexpansion
 
 (returns 15
-  (» + 1 2 3 4 5))
+  (» + 1 2 (» + 3 4 5)))
 
 # # #
 # declaring and expanding macros
@@ -805,3 +812,9 @@
 
 (has-type (-> Float (-> Float Float))
   (: + (» -> Float Float Float)))
+
+# # #
+# can use macros in types below the top level
+
+(has-type (-> (-> Float (-> Float Float)) (-> Float Float))
+  (: (error! "foo") (» -> (» -> Float Float Float) Float Float)))

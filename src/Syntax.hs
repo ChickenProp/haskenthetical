@@ -122,7 +122,7 @@ data SyntaxTree
   | STFloat Double
   | STBare Text
   | STTree [SyntaxTree]
-  deriving (Eq, Show)
+  deriving (Eq, Ord, Show)
 instance Gist SyntaxTree where
   gist (STString t) = gist (tshow t)
   gist (STFloat f) = gist f
@@ -366,6 +366,7 @@ data MType (p :: Pass)
   = TVar (TVar p)
   | TCon (TCon p)
   | TApp (MType p) (MType p)
+  | MacroMType !(XCanHaveMacro p) Name [SyntaxTree]
 deriving instance Eq (MType Ps)
 deriving instance Eq (MType Me)
 deriving instance Eq (MType Tc)
@@ -383,6 +384,7 @@ instance Gist (MType p) where
     TApp a b -> case gist a of
       TD.App n xs -> TD.App n (xs ++ [gist b])
       _ -> error "Unexpected gist"
+    MacroMType _ n trees -> TD.App "MacroMType" [gist n, gist trees]
 
 instance HasKind (MType Tc) where
   getKind t = case t of
@@ -391,6 +393,7 @@ instance HasKind (MType Tc) where
     t1 `TApp` t2 -> case (getKind t1, getKind t2) of
       (k11 :*-> k12, k2) | k11 == k2 -> k12
       _ -> error $ "Type with malformed kind: " ++ show t
+    MacroMType v _ _ -> absurd v
 
 (+->) :: MType Tc -> MType Tc -> MType Tc
 a +-> b = TCon (TC (HType :*-> HType :*-> HType) "->") `TApp` a `TApp` b

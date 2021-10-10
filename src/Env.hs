@@ -53,6 +53,7 @@ me2tc_MType env = \case
   TCon (TC NoExt n) -> maybe (Left $ CEUnknownType n) return (env !? n)
   TVar (TV NoExt n) -> return $ TVar $ TV HType n
   TApp a b -> TApp <$> me2tc_MType env a <*> me2tc_MType env b
+  MacroMType v _ _ -> absurd v
 
 me2tc_PType :: TypeEnv PType -> PType Me -> Either CompileError (PType Tc)
 me2tc_PType env = \case

@@ -63,13 +63,17 @@ class Substitutable a where
   ftv :: a -> Set.Set (TVar Tc)
 
 instance Substitutable (MType Tc) where
-  apply _ (TCon a) = TCon a
-  apply (Subst s) t@(TVar a) = Map.findWithDefault t a s
-  apply s (t1 `TApp` t2) = apply s t1 `TApp` apply s t2
+  apply s@(Subst s') = \case
+    TCon a           -> TCon a
+    t@(TVar a)       -> Map.findWithDefault t a s'
+    t1 `TApp` t2     -> apply s t1 `TApp` apply s t2
+    MacroMType v _ _ -> absurd v
 
-  ftv (TCon _) = Set.empty
-  ftv (TVar a) = Set.singleton a
-  ftv (t1 `TApp` t2) = ftv t1 `Set.union` ftv t2
+  ftv = \case
+    TCon _           -> Set.empty
+    TVar a           -> Set.singleton a
+    t1 `TApp` t2     -> ftv t1 `Set.union` ftv t2
+    MacroMType v _ _ -> absurd v
 
 instance Substitutable (PType Tc) where
   apply (Subst s) (Forall as t) =
@@ -412,7 +416,11 @@ constrain twoWay = go
         sl <- go t11 t21
         sr <- go (apply sl t12) (apply sl t22)
         return $ sr `composeSubst` sl
-    where isTVar = \case { TVar _ -> True; TCon _ -> False; TApp _ _ -> False }
+    where isTVar = \case
+            TVar _ -> True
+            TCon _ -> False
+            TApp _ _ -> False
+            MacroMType v _ _ -> absurd v
   go a b = Left $ CEUnificationFail a b
 
 solver :: Unifier -> Solve Subst
